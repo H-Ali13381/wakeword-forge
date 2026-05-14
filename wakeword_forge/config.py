@@ -60,10 +60,11 @@ class ForgeConfig:
     wake_phrases: list[str] = field(default_factory=list)
     project_dir: str = ""
 
-    # Recording
+    # Recording/import
     record_positives: int = 20
     record_negatives: int = 10
     record_duration: float = 4.0   # seconds per take; silence is trimmed before training
+    sample_source_dir: str = ""    # optional folder of existing positive wake-phrase clips
 
     # Synthesis
     use_tts_augmentation: bool = True
@@ -85,6 +86,7 @@ class ForgeConfig:
     # Runtime (filled in after training)
     trained_threshold: float = 0.5
     trained_eer: float | None = None
+    trained_sample_fingerprint: str = ""
 
     # Human review checkpoints
     sample_review_approved: bool = False

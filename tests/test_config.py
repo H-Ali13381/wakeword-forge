@@ -8,12 +8,18 @@ from wakeword_forge.config import ForgeConfig
 
 
 def test_save_load_roundtrip(tmp_path):
-    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+    sample_source = tmp_path / "existing samples"
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path),
+        sample_source_dir=str(sample_source),
+    )
     cfg_file = tmp_path / "forge_config.json"
     cfg.save(cfg_file)
     loaded = ForgeConfig.load(cfg_file)
     assert loaded.wake_phrase == "Hey Nova"
     assert loaded.backend == "dscnn"
+    assert loaded.sample_source_dir == str(sample_source)
 
 
 def test_resolved_paths(tmp_path):

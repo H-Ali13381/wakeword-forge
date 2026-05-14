@@ -20,6 +20,7 @@ from typing import Callable
 from wakeword_forge.config import ForgeConfig, MIN_NEGATIVES, MIN_POSITIVES, normalize_phrases
 from wakeword_forge.project import (
     ensure_project_dirs,
+    import_positive_samples,
     inspect_project,
     load_or_create_config,
     reset_project,
@@ -364,16 +365,29 @@ def _render_workspace_step(st, config: ForgeConfig) -> ForgeConfig:
 
 
 def _render_recording_step(st, config: ForgeConfig) -> ForgeConfig:
-    """Render only recording parameters for the second wizard step."""
+    """Render only recording/import parameters for the second wizard step."""
 
     st.subheader("2. Recording plan")
-    st.caption("Set the human-recorded examples. No synthesis or training controls here.")
+    st.caption("Use a microphone or import an existing folder of wake-phrase clips.")
+    source_options = ("Record with microphone", "Import existing folder")
+    source_mode = st.selectbox(
+        "Positive sample source",
+        options=source_options,
+        index=1 if config.sample_source_dir else 0,
+    )
     record_positives = st.number_input(
-        "Target positive recordings",
+        "Target positive examples",
         min_value=MIN_POSITIVES,
         max_value=200,
         value=max(config.record_positives, MIN_POSITIVES),
     )
+    sample_source_dir = ""
+    if source_mode == "Import existing folder":
+        sample_source_dir = st.text_input(
+            "Existing positive sample folder",
+            value=config.sample_source_dir,
+            help="Folder containing existing wake-phrase audio clips. Supported formats: WAV, FLAC, OGG.",
+        ).strip()
     record_negatives = st.number_input(
         "Target negative recordings",
         min_value=MIN_NEGATIVES,
@@ -393,6 +407,7 @@ def _render_recording_step(st, config: ForgeConfig) -> ForgeConfig:
         record_positives=int(record_positives),
         record_negatives=int(record_negatives),
         record_duration=float(record_duration),
+        sample_source_dir=sample_source_dir,
     )
     if st.button("Confirm recording plan", type="secondary", use_container_width=True):
         _confirm_step(st, updated, "augmentation", "Recording plan confirmed.")
@@ -510,6 +525,7 @@ def _render_one_take_recorder(
     out_dir: Path,
     duration: float,
     prefix: str,
+    guidance: str | None = None,
 ) -> None:
     st.markdown(f"**{current_count} / {target_count} {kind} takes saved**")
     if current_count >= target_count:
@@ -518,6 +534,8 @@ def _render_one_take_recorder(
 
     next_take = current_count + 1
     st.caption(f"Take {next_take}: press record, speak `{phrase}`, then replay before moving on.")
+    if guidance:
+        st.caption(guidance)
     if st.button(
         f"Record {kind} take {next_take} of {target_count}",
         disabled=not bool(phrase),
@@ -553,8 +571,159 @@ def _positive_phrase_for_take(config: ForgeConfig, current_count: int) -> str:
     return phrases[current_count % len(phrases)]
 
 
+_CONFUSABLE_WORD_HINTS = {
+    "hermes": ("hemmy",),
+}
+
+
+def _simple_words(text: str) -> tuple[str, ...]:
+    normalized = "".join(char.lower() if char.isalnum() else " " for char in text)
+    return tuple(word for word in normalized.split() if word)
+
+
+def _dedupe_ordered(items: list[str]) -> tuple[str, ...]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item and item not in seen:
+            deduped.append(item)
+            seen.add(item)
+    return tuple(deduped)
+
+
+def _matches_full_trigger_example(example: str, trigger_options: tuple[tuple[str, ...], ...]) -> bool:
+    example_words = _simple_words(example)
+    if not example_words:
+        return False
+    for trigger_words in trigger_options:
+        if not trigger_words:
+            continue
+        if example_words == trigger_words:
+            return True
+        if len(example_words) >= len(trigger_words):
+            for start in range(0, len(example_words) - len(trigger_words) + 1):
+                if example_words[start : start + len(trigger_words)] == trigger_words:
+                    return True
+        if len(example_words) % len(trigger_words) == 0:
+            repeats = len(example_words) // len(trigger_words)
+            if repeats > 1 and example_words == trigger_words * repeats:
+                return True
+        trigger_text = "".join(trigger_words)
+        example_text = "".join(example_words)
+        if len(example_text) % len(trigger_text) == 0:
+            repeats = len(example_text) // len(trigger_text)
+            if repeats > 1 and example_text == trigger_text * repeats:
+                return True
+    return False
+
+
+def _filter_full_trigger_examples(examples: tuple[str, ...], trigger_phrases: tuple[str, ...]) -> tuple[str, ...]:
+    trigger_options = tuple(_simple_words(phrase) for phrase in trigger_phrases)
+    return tuple(
+        example
+        for example in examples
+        if not _matches_full_trigger_example(example, trigger_options)
+    )
+
+
+def _negative_examples_for_phrase(phrase: str) -> tuple[str, ...]:
+    words = list(_simple_words(phrase))
+    if not words:
+        return ()
+
+    examples: list[str] = []
+    for index, word in enumerate(words):
+        for replacement in _CONFUSABLE_WORD_HINTS.get(word, ()):  # near-miss words users can say.
+            near_miss = list(words)
+            near_miss[index] = replacement
+            examples.append(" ".join(near_miss))
+
+    if len(words) > 1:
+        examples.extend(" ".join(words[:index]) for index in range(1, len(words)))
+
+    first_word = words[0]
+    if first_word in {"okay", "ok"}:
+        first_fragment = "ok"
+        examples.append("ok-")
+    else:
+        first_fragment = first_word[: max(1, min(3, len(first_word)))]
+        examples.append(f"{first_fragment}-")
+    examples.append(first_fragment * 4)
+
+    tail_words = words[1:] if len(words) > 1 else words
+    for word in tail_words:
+        if len(word) >= 4:
+            midpoint = max(2, len(word) // 2)
+            left = word[:midpoint]
+            right = word[midpoint:]
+            examples.extend([left, right, word, left * 3, right * 3, f"{word}-{word}"])
+        else:
+            examples.extend([word, word * 3, f"{word}-{word}"])
+
+    return _filter_full_trigger_examples(_dedupe_ordered(examples), (phrase,))
+
+
+def _negative_example_guidance(config: ForgeConfig) -> str:
+    phrases = _phrase_list_for_generation(config)
+    examples = _filter_full_trigger_examples(
+        _dedupe_ordered([example for phrase in phrases for example in _negative_examples_for_phrase(phrase)]),
+        phrases,
+    )
+    example_text = ", ".join(f"`{example}`" for example in examples[:14])
+    if example_text:
+        return (
+            "Good counter-examples: confusable near-misses, partial utterances, "
+            f"repeated fragments, and normal speech that is not the trigger. Try: {example_text}."
+        )
+    return (
+        "Good counter-examples: confusable near-misses, partial utterances, repeated fragments, "
+        "and normal speech that is not the trigger."
+    )
+
+
 def _phrase_list_for_generation(config: ForgeConfig) -> tuple[str, ...]:
     return config.phrase_options or normalize_phrases((config.wake_phrase,))
+
+
+def _render_positive_sample_import(st, config: ForgeConfig, current_count: int, target_count: int) -> None:
+    st.markdown(f"**{current_count} / {target_count} wake-phrase samples imported**")
+    missing = max(0, target_count - current_count)
+    source_dir = Path(config.sample_source_dir).expanduser() if config.sample_source_dir else None
+    source_available = source_dir is not None and source_dir.is_dir()
+    if source_dir is None:
+        st.caption("Choose an existing positive sample folder in the recording plan.")
+    elif not source_available:
+        st.caption(f"Existing positive sample folder is not available: {source_dir}")
+    else:
+        st.caption(f"Import wake-phrase clips from `{source_dir}`. Source files are copied; originals stay untouched.")
+
+    if st.button(
+        f"Import {missing} existing wake-phrase samples",
+        disabled=missing == 0 or not source_available,
+        type="secondary",
+        use_container_width=True,
+    ):
+        try:
+            assert source_dir is not None
+            with st.spinner(f"Importing {missing} existing wake-phrase samples"):
+                result = import_positive_samples(config, source_dir, limit=missing)
+        except Exception as exc:  # pragma: no cover - UI error display path.
+            st.error(str(exc))
+            st.exception(exc)
+            return
+
+        if result.imported_count:
+            save_config(config)
+            st.success(
+                f"Imported {result.imported_count} existing wake-phrase samples "
+                f"from {result.available_count} available audio files."
+            )
+        else:
+            st.warning("No existing wake-phrase samples were imported from that folder.")
+        skipped_paths = getattr(result, "skipped_paths", ())
+        if skipped_paths:
+            st.caption(f"Skipped {len(skipped_paths)} unreadable audio file(s).")
+        st.rerun()
 
 
 def _split_count(total: int, buckets: int) -> list[int]:
@@ -572,28 +741,37 @@ def _render_capture_step(st, config: ForgeConfig, status) -> None:
         return
 
     if status.real_positives < config.record_positives:
-        _render_one_take_recorder(
-            st,
-            kind="wake-phrase",
-            phrase=_positive_phrase_for_take(config, status.real_positives),
-            current_count=status.real_positives,
-            target_count=config.record_positives,
-            out_dir=config.positives_path,
-            duration=config.record_duration,
-            prefix="take",
-        )
+        if config.sample_source_dir:
+            _render_positive_sample_import(
+                st,
+                config,
+                current_count=status.real_positives,
+                target_count=config.record_positives,
+            )
+        else:
+            _render_one_take_recorder(
+                st,
+                kind="wake-phrase",
+                phrase=_positive_phrase_for_take(config, status.real_positives),
+                current_count=status.real_positives,
+                target_count=config.record_positives,
+                out_dir=config.positives_path,
+                duration=config.record_duration,
+                prefix="take",
+            )
         return
 
     if status.negatives < config.record_negatives:
         _render_one_take_recorder(
             st,
             kind="counter-example",
-            phrase=f"anything except {' / '.join(_phrase_list_for_generation(config)) or 'the wake phrase'}",
+            phrase="a near-miss, partial phrase, repeated fragment, or anything except the full trigger",
             current_count=status.negatives,
             target_count=config.record_negatives,
             out_dir=config.negatives_path,
             duration=config.record_duration,
             prefix="neg",
+            guidance=_negative_example_guidance(config),
         )
         return
 

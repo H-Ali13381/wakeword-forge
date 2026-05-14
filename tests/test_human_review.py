@@ -15,6 +15,7 @@ from wakeword_forge.review import (
     sample_inventory,
     select_generated_audit_samples,
     summarize_quality_observations,
+    training_data_fingerprint,
 )
 
 
@@ -30,6 +31,13 @@ def _ready_config(tmp_path: Path) -> ForgeConfig:
     for i in range(MIN_NEGATIVES):
         _touch_wav(cfg.negatives_path / f"neg_{i:03d}.wav")
     return cfg
+
+
+def _mark_current_samples_trained(config: ForgeConfig) -> Path:
+    config.trained_sample_fingerprint = training_data_fingerprint(config)
+    model_path = config.output_path / "wakeword.onnx"
+    _touch_wav(model_path)
+    return model_path
 
 
 def test_training_requires_explicit_sample_review_after_counts_are_ready(tmp_path):
@@ -119,7 +127,7 @@ def test_quality_observations_summarize_hits_misses_false_triggers_and_score_ran
 def test_quality_checkpoint_and_model_acceptance_update_project_stage(tmp_path):
     cfg = _ready_config(tmp_path)
     approve_sample_review(cfg)
-    _touch_wav(cfg.output_path / "wakeword.onnx")
+    _mark_current_samples_trained(cfg)
 
     status = inspect_project(cfg)
     assert status.workflow_stage == "trained"
@@ -170,6 +178,29 @@ def test_sample_review_is_invalidated_when_reviewed_files_change(tmp_path):
     assert status.next_action == "Review samples before training."
 
 
+def test_quality_check_and_acceptance_are_invalidated_when_training_samples_change(tmp_path):
+    cfg = _ready_config(tmp_path)
+    approve_sample_review(cfg)
+    _mark_current_samples_trained(cfg)
+    report = summarize_quality_observations(
+        [QualityObservation(kind="positive", score=0.9)],
+        threshold=0.7,
+    )
+    record_quality_check(cfg, report)
+    accept_model(cfg)
+    assert inspect_project(cfg).model_accepted is True
+
+    _touch_wav(cfg.positives_path / "take_new.wav")
+    status = inspect_project(cfg)
+
+    assert status.quality_check_passed is False
+    assert status.model_accepted is False
+    with pytest.raises(ValueError, match="Retrain the detector"):
+        record_quality_check(cfg, report)
+    with pytest.raises(ValueError, match="Retrain the detector"):
+        accept_model(cfg)
+
+
 def test_generated_review_is_invalidated_when_generated_files_change(tmp_path):
     cfg = _ready_config(tmp_path)
     approve_sample_review(cfg)
@@ -189,8 +220,7 @@ def test_generated_review_is_invalidated_when_generated_files_change(tmp_path):
 def test_model_acceptance_requires_current_project_model(tmp_path):
     cfg = _ready_config(tmp_path)
     approve_sample_review(cfg)
-    model_path = cfg.output_path / "wakeword.onnx"
-    _touch_wav(model_path)
+    model_path = _mark_current_samples_trained(cfg)
     report = summarize_quality_observations(
         [QualityObservation(kind="positive", score=0.9)],
         threshold=0.7,
@@ -211,7 +241,7 @@ def test_model_acceptance_requires_current_project_model(tmp_path):
 
 def test_quality_check_on_alternate_model_cannot_accept_project_model(tmp_path):
     cfg = _ready_config(tmp_path)
-    _touch_wav(cfg.output_path / "wakeword.onnx")
+    _mark_current_samples_trained(cfg)
     alternate_model = tmp_path / "scratch.onnx"
     alternate_model.write_bytes(b"other model")
     report = summarize_quality_observations(

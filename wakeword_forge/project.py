@@ -9,6 +9,21 @@ from pathlib import Path
 from .config import ForgeConfig, MIN_NEGATIVES, MIN_POSITIVES
 
 CONFIG_FILENAME = "forge_config.json"
+SUPPORTED_AUDIO_EXTENSIONS = (".wav", ".flac", ".ogg")
+
+
+@dataclass(frozen=True)
+class SampleImportResult:
+    """Summary of copying existing audio into the positive sample set."""
+
+    source_dir: Path
+    imported_paths: tuple[Path, ...]
+    available_count: int
+    skipped_paths: tuple[Path, ...] = ()
+
+    @property
+    def imported_count(self) -> int:
+        return len(self.imported_paths)
 
 
 def load_or_create_config(project_dir: Path | str) -> ForgeConfig:
@@ -94,6 +109,81 @@ def count_wavs(directory: Path) -> int:
     if not directory.exists():
         return 0
     return len(list(directory.rglob("*.wav")))
+
+
+def _audio_sample_files(directory: Path) -> tuple[Path, ...]:
+    return tuple(
+        sorted(
+            path
+            for path in directory.rglob("*")
+            if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+        )
+    )
+
+
+def _next_numbered_sample_path(out_dir: Path, prefix: str) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    index = 0
+    while True:
+        candidate = out_dir / f"{prefix}_{index:04d}.wav"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _write_imported_positive_sample(source_path: Path, target_path: Path) -> None:
+    import soundfile as sf
+
+    from .augmentation import _load_wav
+    from .config import SAMPLE_RATE
+
+    wav = _load_wav(source_path, SAMPLE_RATE, trim_silence=True)
+    audio = wav.squeeze(0).detach().cpu().numpy()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(target_path), audio, SAMPLE_RATE, subtype="PCM_16")
+
+
+def import_positive_samples(
+    config: ForgeConfig,
+    source_dir: Path | str,
+    *,
+    limit: int | None = None,
+) -> SampleImportResult:
+    """Copy existing wake-phrase clips into ``samples/positives`` as normalized WAV files."""
+
+    source_path = Path(source_dir).expanduser()
+    if not source_path.is_dir():
+        raise FileNotFoundError(f"Existing sample folder is not available: {source_path}")
+
+    audio_files = _audio_sample_files(source_path)
+    max_imports = len(audio_files) if limit is None else max(0, int(limit))
+    imported: list[Path] = []
+    skipped: list[Path] = []
+
+    for source_path in audio_files:
+        if len(imported) >= max_imports:
+            break
+        target_path = _next_numbered_sample_path(config.positives_path, "imported")
+        try:
+            _write_imported_positive_sample(source_path, target_path)
+        except Exception:
+            if target_path.exists():
+                target_path.unlink()
+            skipped.append(source_path)
+            continue
+        imported.append(target_path)
+
+    if imported:
+        from .review import reset_sample_dependent_approvals
+
+        reset_sample_dependent_approvals(config)
+
+    return SampleImportResult(
+        source_dir=Path(source_dir).expanduser(),
+        imported_paths=tuple(imported),
+        available_count=len(audio_files),
+        skipped_paths=tuple(skipped),
+    )
 
 
 @dataclass(frozen=True)

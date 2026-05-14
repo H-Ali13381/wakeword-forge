@@ -116,6 +116,12 @@ def generated_review_fingerprint(config: ForgeConfig) -> str:
     return _fingerprint_paths(sample_inventory(config).generated, config.project_path)
 
 
+def training_data_fingerprint(config: ForgeConfig) -> str:
+    """Fingerprint the exact sample set used to train the current model."""
+
+    return _fingerprint_paths(sample_inventory(config).all_samples, config.project_path)
+
+
 def sample_review_current(config: ForgeConfig) -> bool:
     return (
         config.sample_review_approved
@@ -149,6 +155,7 @@ def quality_check_current(config: ForgeConfig) -> bool:
     return (
         config.quality_check_passed
         and model_path.exists()
+        and config.trained_sample_fingerprint == training_data_fingerprint(config)
         and config.quality_checked_model_fingerprint == model_fingerprint(model_path)
     )
 
@@ -222,6 +229,8 @@ def record_quality_check(
     """Persist guided quality-check results into the project config."""
 
     checked_model = model_path or current_project_model(config)
+    if config.trained_sample_fingerprint != training_data_fingerprint(config):
+        raise ValueError("Retrain the detector after changing samples before running the quality check.")
     checked_fingerprint = model_fingerprint(checked_model) if checked_model.exists() else ""
     config.quality_check_passed = report.passed
     config.model_accepted = False
@@ -241,6 +250,8 @@ def accept_model(config: ForgeConfig) -> None:
     model_path = current_project_model(config)
     if not config.quality_check_passed:
         raise ValueError("Run and pass the guided quality check before accepting the model.")
+    if config.trained_sample_fingerprint != training_data_fingerprint(config):
+        raise ValueError("Retrain the detector after changing samples before accepting the model.")
     if not model_path.exists():
         raise ValueError("Cannot accept model: current model artifact is missing.")
     fingerprint = model_fingerprint(model_path)
@@ -263,3 +274,11 @@ def reset_trained_output_approval(config: ForgeConfig) -> None:
     config.quality_false_triggers = 0
     config.quality_score_min = None
     config.quality_score_max = None
+
+
+def reset_sample_dependent_approvals(config: ForgeConfig) -> None:
+    """Invalidate reviews and model approval whenever user-managed samples change."""
+
+    config.sample_review_approved = False
+    config.sample_review_fingerprint = ""
+    reset_trained_output_approval(config)

@@ -20,14 +20,15 @@ make start DIR=~/wakeword_forge_project
 
 `make start` opens the Streamlit dashboard. The dashboard guides the full flow:
 
-1. choose a wake phrase
-2. record positive and negative examples
-3. generate optional TTS augmentation and hard negatives
-4. review recorded/generated samples before training
-5. train/export the detector
-6. run a guided live quality check
-7. explicitly accept the model before treating it as final
-8. copy the pure CLI fallback commands when a terminal workflow is better
+1. choose one or more wake phrases
+2. choose microphone recording or an existing folder for positive wake-phrase clips
+3. collect positive and negative examples
+4. generate optional TTS augmentation and hard negatives
+5. review recorded/generated samples before training
+6. train/export the detector
+7. run a guided live quality check
+8. explicitly accept the model before treating it as final
+9. copy the pure CLI fallback commands when a terminal workflow is better
 
 ## Pure CLI fallback
 

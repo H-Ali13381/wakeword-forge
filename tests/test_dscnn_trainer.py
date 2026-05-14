@@ -12,6 +12,7 @@ import torch
 
 from wakeword_forge.config import ForgeConfig, SAMPLE_RATE
 from wakeword_forge.models.dscnn_trainer import DSCNNDataset, DSCNNTrainer, _build_sampler
+from wakeword_forge.review import training_data_fingerprint
 from wakeword_forge.trainer import run_training
 
 
@@ -98,3 +99,4 @@ def test_run_training_dispatches_default_dscnn_backend(tmp_path, monkeypatch):
     assert calls == {"backend": "dscnn", "pos": 10, "neg": 5, "partials": 0}
     assert cfg.trained_threshold == 0.37
     assert cfg.trained_eer == 0.11
+    assert cfg.trained_sample_fingerprint == training_data_fingerprint(cfg)

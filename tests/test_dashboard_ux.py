@@ -162,6 +162,8 @@ def test_recording_step_shows_only_recording_parameters(tmp_path):
     class FakeSt:
         def __init__(self):
             self.number_labels: list[str] = []
+            self.text_labels: list[str] = []
+            self.select_labels: list[str] = []
 
         def subheader(self, *_args, **_kwargs):
             pass
@@ -173,14 +175,16 @@ def test_recording_step_shows_only_recording_parameters(tmp_path):
             self.number_labels.append(label)
             return kwargs["value"]
 
-        def text_input(self, *_args, **_kwargs):
-            raise AssertionError("workspace parameters leaked into recording step")
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(label)
+            return kwargs.get("value", "")
 
         def toggle(self, *_args, **_kwargs):
             raise AssertionError("augmentation parameters leaked into recording step")
 
-        def selectbox(self, *_args, **_kwargs):
-            raise AssertionError("augmentation parameters leaked into recording step")
+        def selectbox(self, label, **kwargs):
+            self.select_labels.append(label)
+            return kwargs["options"][kwargs["index"]]
 
         def button(self, *_args, **_kwargs):
             return False
@@ -199,11 +203,65 @@ def test_recording_step_shows_only_recording_parameters(tmp_path):
 
     dashboard._render_recording_step(fake, cfg)
 
+    assert fake.select_labels == ["Positive sample source"]
+    assert fake.text_labels == []
     assert fake.number_labels == [
-        "Target positive recordings",
+        "Target positive examples",
         "Target negative recordings",
         "Seconds per take",
     ]
+
+
+def test_recording_step_can_choose_existing_positive_sample_folder(tmp_path):
+    source = tmp_path / "existing voice"
+
+    class FakeSt:
+        def __init__(self):
+            self.text_labels: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def number_input(self, label, **kwargs):
+            if label == "Target positive examples":
+                return 12
+            return kwargs["value"]
+
+        def selectbox(self, label, **_kwargs):
+            assert label == "Positive sample source"
+            return "Import existing folder"
+
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(label)
+            assert kwargs["help"].startswith("Folder containing existing wake-phrase")
+            return str(source)
+
+        def toggle(self, *_args, **_kwargs):
+            raise AssertionError("augmentation parameters leaked into recording step")
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    updated = dashboard._render_recording_step(fake, cfg)
+
+    assert fake.text_labels == ["Existing positive sample folder"]
+    assert updated.record_positives == 12
+    assert updated.sample_source_dir == str(source)
 
 
 class CaptureFakeSt:
@@ -408,6 +466,66 @@ def test_capture_step_replays_last_saved_take_and_offers_next_recording(tmp_path
     assert any("Saved wake-phrase take 1/20" in message for message in fake.successes)
 
 
+def test_capture_step_recommends_strong_negative_utterances(tmp_path):
+    cfg = ForgeConfig(
+        wake_phrase="Okay Hermes",
+        project_dir=str(tmp_path),
+        record_positives=20,
+        record_negatives=10,
+    )
+    for i in range(20):
+        _touch_wav(cfg.positives_path / f"take_{i:04d}.wav")
+    status = inspect_project(cfg)
+    fake = CaptureFakeSt()
+
+    dashboard._render_capture_step(fake, cfg, status)
+
+    rendered = "\n".join(fake.captions + fake.markdowns)
+    assert "confusable near-misses" in rendered
+    assert "partial utterances" in rendered
+    assert "repeated fragments" in rendered
+    for example in (
+        "okay hemmy",
+        "okay",
+        "ok-",
+        "her",
+        "mes",
+        "hermes",
+        "okokokok",
+        "herherher",
+        "mesmesmes",
+        "hermes-hermes",
+    ):
+        assert example in rendered
+
+
+def test_negative_guidance_filters_full_trigger_aliases():
+    cfg = ForgeConfig(wake_phrase="Hermes", wake_phrases=["Okay Hermes"])
+
+    guidance = dashboard._negative_example_guidance(cfg)
+
+    assert "`hermes`" not in guidance
+    assert "`hermes-hermes`" not in guidance
+    assert "`okay hermes`" not in guidance
+    assert "hemmy" in guidance
+    assert "herherher" in guidance
+
+
+def test_negative_guidance_filters_separatorless_repeated_short_triggers():
+    cases = (
+        (ForgeConfig(wake_phrase="OK"), ("`ok`", "`okokok`", "`okokokok`", "`ok-ok`")),
+        (ForgeConfig(wake_phrase="Go"), ("`go`", "`gogogo`", "`gogogogo`", "`go-go`")),
+        (ForgeConfig(wake_phrase="Hey", wake_phrases=["Hey Nova"]), ("`hey`", "`heyheyhey`", "`heyheyheyhey`")),
+        (ForgeConfig(wake_phrase="OK", wake_phrases=["OK Hermes"]), ("`ok hemmy`",)),
+        (ForgeConfig(wake_phrase="Okay", wake_phrases=["Okay Hermes"]), ("`okay hemmy`",)),
+    )
+
+    for cfg, forbidden_examples in cases:
+        guidance = dashboard._negative_example_guidance(cfg)
+        for example in forbidden_examples:
+            assert example not in guidance
+
+
 def test_capture_step_record_button_records_exactly_one_take(monkeypatch, tmp_path):
     cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path), record_positives=20, record_negatives=10)
     status = inspect_project(cfg)
@@ -428,6 +546,58 @@ def test_capture_step_record_button_records_exactly_one_take(monkeypatch, tmp_pa
     assert calls == [("Hey Nova", cfg.positives_path, cfg.record_duration, "take")]
     assert fake.session_state[dashboard.LAST_CAPTURED_TAKE_KEY]["path"] == str(saved_path)
     assert fake.session_state[dashboard.LAST_CAPTURED_TAKE_KEY]["saved_count"] == 1
+
+
+def test_capture_step_imports_existing_samples_instead_of_recording(monkeypatch, tmp_path):
+    source = tmp_path / "existing voice"
+    source.mkdir()
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path / "project"),
+        record_positives=3,
+        record_negatives=10,
+        sample_source_dir=str(source),
+    )
+    _touch_wav(cfg.positives_path / "take_0000.wav")
+    status = inspect_project(cfg)
+    calls: list[tuple[ForgeConfig, Path, int]] = []
+
+    class Result:
+        imported_count = 2
+        available_count = 4
+        imported_paths = [cfg.positives_path / "imported_0000.wav", cfg.positives_path / "imported_0001.wav"]
+
+    def fake_import_positive_samples(config: ForgeConfig, source_dir: Path, *, limit: int):
+        calls.append((config, source_dir, limit))
+        return Result()
+
+    monkeypatch.setattr(dashboard, "import_positive_samples", fake_import_positive_samples)
+    fake = CaptureFakeSt(pressed={"Import 2 existing wake-phrase samples"})
+
+    dashboard._render_capture_step(fake, cfg, status)
+
+    assert "Record wake-phrase take 2 of 3" not in fake.buttons
+    assert calls == [(cfg, source, 2)]
+    assert any("Imported 2 existing wake-phrase samples" in message for message in fake.successes)
+    assert fake.session_state["rerun_requested"] is True
+
+
+def test_capture_step_disables_import_when_existing_folder_is_missing(tmp_path):
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path / "project"),
+        record_positives=3,
+        record_negatives=10,
+        sample_source_dir=str(tmp_path / "missing"),
+    )
+    status = inspect_project(cfg)
+    fake = CaptureFakeSt()
+
+    dashboard._render_capture_step(fake, cfg, status)
+
+    assert "Import 3 existing wake-phrase samples" in fake.buttons
+    assert fake.button_kwargs["Import 3 existing wake-phrase samples"]["disabled"] is True
+    assert any("Existing positive sample folder is not available" in caption for caption in fake.captions)
 
 
 def test_capture_step_shows_visible_generation_targets_after_required_takes(tmp_path):
