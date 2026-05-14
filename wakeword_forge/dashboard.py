@@ -249,6 +249,20 @@ def _sidebar_config(st, config: ForgeConfig) -> ForgeConfig:
         cache_dir=config.cache_dir,
         trained_threshold=config.trained_threshold,
         trained_eer=config.trained_eer,
+        sample_review_approved=config.sample_review_approved,
+        generated_review_approved=config.generated_review_approved,
+        sample_review_fingerprint=config.sample_review_fingerprint,
+        generated_review_fingerprint=config.generated_review_fingerprint,
+        quality_check_passed=config.quality_check_passed,
+        model_accepted=config.model_accepted,
+        quality_checked_model_path=config.quality_checked_model_path,
+        quality_checked_model_fingerprint=config.quality_checked_model_fingerprint,
+        accepted_model_fingerprint=config.accepted_model_fingerprint,
+        quality_positive_hits=config.quality_positive_hits,
+        quality_positive_trials=config.quality_positive_trials,
+        quality_false_triggers=config.quality_false_triggers,
+        quality_score_min=config.quality_score_min,
+        quality_score_max=config.quality_score_max,
     )
 
     if st.sidebar.button("Save settings", type="primary", use_container_width=True):
@@ -280,10 +294,108 @@ def _render_cli_fallbacks(st, config: ForgeConfig) -> None:
             n=config.tts_variants,
             engine=config.tts_engine,
         ),
+        make_command("review", config.project_path),
+        make_command("audit", config.project_path),
         make_command("train", config.project_path),
+        make_command("quality-check", config.project_path),
+        make_command("accept-model", config.project_path),
         make_command("mic-test", config.project_path),
     ]
     st.code("\n".join(commands), language="bash")
+
+
+def _status_badge(value: bool) -> str:
+    return "✅ approved" if value else "⏳ pending"
+
+
+def _render_review_checkpoints(st, config: ForgeConfig, status) -> None:
+    from .review import (
+        accept_model,
+        approve_generated_review,
+        approve_sample_review,
+        sample_inventory,
+        select_generated_audit_samples,
+    )
+
+    expanded = status.samples_ready or status.has_model
+    with st.expander("Human review checkpoints", expanded=expanded):
+        st.markdown(f"**Workflow stage:** `{status.workflow_stage}`")
+        gate_cols = st.columns(4)
+        gate_cols[0].metric("Sample review", _status_badge(status.sample_review_approved))
+        gate_cols[1].metric("Generated audit", _status_badge(status.generated_review_approved))
+        gate_cols[2].metric("Quality check", "✅ passed" if status.quality_check_passed else "⏳ pending")
+        gate_cols[3].metric("Model accepted", "✅ yes" if status.model_accepted else "⏳ no")
+
+        inventory = sample_inventory(config)
+        st.subheader("Pre-training sample review")
+        st.caption("Spot-check clips, delete/re-record bad takes from the CLI if needed, then approve.")
+        sample_cols = st.columns(2)
+        with sample_cols[0]:
+            st.write(f"Recorded positives: {len(inventory.positives)}")
+            for path in inventory.positives[:3]:
+                st.caption(path.relative_to(config.project_path))
+                st.audio(str(path))
+        with sample_cols[1]:
+            st.write(f"Recorded negatives: {len(inventory.negatives)}")
+            for path in inventory.negatives[:3]:
+                st.caption(path.relative_to(config.project_path))
+                st.audio(str(path))
+        if st.button(
+            "Approve sample review",
+            disabled=not status.samples_ready or status.sample_review_approved,
+            use_container_width=True,
+        ):
+            approve_sample_review(config)
+            save_config(config)
+            st.success("Sample review approved.")
+            st.rerun()
+
+        st.subheader("Generated-output audit")
+        audit_paths = select_generated_audit_samples(config, limit=6)
+        if audit_paths:
+            for path in audit_paths:
+                st.caption(path.relative_to(config.project_path))
+                st.audio(str(path))
+        else:
+            st.caption("No generated audio to audit yet.")
+        if st.button(
+            "Approve generated-audio audit",
+            disabled=status.generated_audio_count == 0 or status.generated_review_approved,
+            use_container_width=True,
+        ):
+            approve_generated_review(config)
+            save_config(config)
+            st.success("Generated-audio audit approved.")
+            st.rerun()
+
+        st.subheader("Post-training quality checkpoint")
+        st.markdown(
+            "Run a guided protocol: say the wake phrase, say near misses/confusables, "
+            "then stay silent/background-only. The CLI records detections, misses, false triggers, "
+            "and score range."
+        )
+        st.code(make_command("quality-check", config.project_path), language="bash")
+        if status.quality_positive_trials:
+            st.write(
+                f"Last check: {status.quality_positive_hits}/{status.quality_positive_trials} positives, "
+                f"{status.quality_false_triggers} false triggers."
+            )
+            if status.quality_score_min is not None and status.quality_score_max is not None:
+                st.write(f"Score range: {status.quality_score_min:.3f}–{status.quality_score_max:.3f}")
+        if st.button(
+            "Accept current model",
+            disabled=not status.quality_check_passed or status.model_accepted,
+            type="primary",
+            use_container_width=True,
+        ):
+            try:
+                accept_model(config)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                save_config(config)
+                st.success("Model accepted.")
+                st.rerun()
 
 
 def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
@@ -338,6 +450,7 @@ def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
 
     st.write("")
     st.info(f"Next: {status.next_action}")
+    _render_review_checkpoints(st, config, status)
 
     actions_left, actions_mid, actions_right = st.columns(3)
 
@@ -464,8 +577,16 @@ def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
             {
                 "project_dir": str(status.project_dir),
                 "wake_phrase": status.wake_phrase,
+                "workflow_stage": status.workflow_stage,
+                "next_action": status.next_action,
                 "ready_to_train": status.ready_to_train,
                 "has_model": status.has_model,
+                "review": {
+                    "sample_review_approved": status.sample_review_approved,
+                    "generated_review_approved": status.generated_review_approved,
+                    "quality_check_passed": status.quality_check_passed,
+                    "model_accepted": status.model_accepted,
+                },
                 "counts": {
                     "real_positives": status.real_positives,
                     "synthetic_positives": status.synthetic_positives,

@@ -51,8 +51,9 @@ def test_project_status_marks_training_ready_when_minimums_are_met(tmp_path):
 
     status = inspect_project(cfg)
 
-    assert status.ready_to_train is True
-    assert status.next_action == "Train the detector."
+    assert status.samples_ready is True
+    assert status.ready_to_train is False
+    assert status.next_action == "Review samples before training."
     assert status.progress_fraction == 1.0
 
 
@@ -81,6 +82,51 @@ def test_dashboard_main_uses_dir_arg_when_streamlit_is_already_running(monkeypat
     assert calls == [str(tmp_path)]
 
 
+def test_sidebar_config_preserves_review_fingerprints(tmp_path):
+    class FakeSidebar:
+        def header(self, *_args, **_kwargs):
+            pass
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def text_input(self, _label, value):
+            return value
+
+        def number_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def toggle(self, _label, value):
+            return value
+
+        def selectbox(self, _label, *, options, index):
+            return options[index]
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+    class FakeSt:
+        sidebar = FakeSidebar()
+
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path),
+        sample_review_fingerprint="samples123",
+        generated_review_fingerprint="generated123",
+        quality_checked_model_path="/tmp/model.onnx",
+        quality_checked_model_fingerprint="quality123",
+        accepted_model_fingerprint="accepted123",
+    )
+
+    updated = dashboard._sidebar_config(FakeSt(), cfg)
+
+    assert updated.sample_review_fingerprint == "samples123"
+    assert updated.generated_review_fingerprint == "generated123"
+    assert updated.quality_checked_model_path == "/tmp/model.onnx"
+    assert updated.quality_checked_model_fingerprint == "quality123"
+    assert updated.accepted_model_fingerprint == "accepted123"
+
+
 def test_makefile_defaults_to_dashboard_with_cli_fallback():
     makefile = Path("Makefile").read_text()
 
@@ -89,6 +135,10 @@ def test_makefile_defaults_to_dashboard_with_cli_fallback():
     assert "start: dashboard" in makefile
     assert "$(FORGE) dashboard --dir \"$(DIR)\"" in makefile
     assert "$(FORGE) run --dir \"$(DIR)\"" in makefile
+    assert "review-samples" in makefile
+    assert "audit-generated" in makefile
+    assert "quality-check" in makefile
+    assert "accept-model" in makefile
 
 
 def test_pyproject_declares_streamlit_ui_extra_and_dashboard_script():

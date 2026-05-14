@@ -23,8 +23,11 @@ make start DIR=~/wakeword_forge_project
 1. choose a wake phrase
 2. record positive and negative examples
 3. generate optional TTS augmentation and hard negatives
-4. train/export the detector
-5. copy the pure CLI fallback commands when a terminal workflow is better
+4. review recorded/generated samples before training
+5. train/export the detector
+6. run a guided live quality check
+7. explicitly accept the model before treating it as final
+8. copy the pure CLI fallback commands when a terminal workflow is better
 
 ## Pure CLI fallback
 
@@ -35,7 +38,11 @@ make cli-run DIR=~/wakeword_forge_project
 make info DIR=~/wakeword_forge_project
 make record DIR=~/wakeword_forge_project PHRASE='Hey Nova' N=20
 make synth DIR=~/wakeword_forge_project PHRASE='Hey Nova' N=300 ENGINE=kokoro
+make review DIR=~/wakeword_forge_project
+make audit DIR=~/wakeword_forge_project
 make train DIR=~/wakeword_forge_project
+make quality-check DIR=~/wakeword_forge_project
+make accept-model DIR=~/wakeword_forge_project
 make mic-test DIR=~/wakeword_forge_project
 ```
 
@@ -44,7 +51,11 @@ Direct CLI equivalents:
 ```bash
 wakeword-forge run --dir ~/wakeword_forge_project
 wakeword-forge info --dir ~/wakeword_forge_project
+wakeword-forge review-samples --dir ~/wakeword_forge_project
+wakeword-forge audit-generated --dir ~/wakeword_forge_project
 wakeword-forge train --dir ~/wakeword_forge_project
+wakeword-forge quality-check --dir ~/wakeword_forge_project
+wakeword-forge accept-model --dir ~/wakeword_forge_project
 wakeword-forge test ~/wakeword_forge_project/output/wakeword.onnx
 ```
 
@@ -55,8 +66,11 @@ wakeword-forge test ~/wakeword_forge_project/output/wakeword.onnx
 2. Record positive examples       (guided microphone prompts)
 3. Record counter-examples        (similar words, ambient speech)
 4. Add augmentation               (TTS variants, hard negatives, noise)
-5. Train                          (compact DS-CNN backend)
-6. Export                         (wakeword.onnx + config.json)
+5. Review samples                 (play/delete/re-record bad takes)
+6. Audit generated clips          (spot-check TTS positives and hard negatives)
+7. Train                          (compact DS-CNN backend)
+8. Quality check                  (wake hits, near misses, silence/background)
+9. Accept                         (mark wakeword.onnx as final for runtime use)
 ```
 
 ## Output

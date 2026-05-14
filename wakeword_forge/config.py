@@ -70,6 +70,22 @@ class ForgeConfig:
     trained_threshold: float = 0.5
     trained_eer: float | None = None
 
+    # Human review checkpoints
+    sample_review_approved: bool = False
+    generated_review_approved: bool = False
+    sample_review_fingerprint: str = ""
+    generated_review_fingerprint: str = ""
+    quality_check_passed: bool = False
+    model_accepted: bool = False
+    quality_checked_model_path: str = ""
+    quality_checked_model_fingerprint: str = ""
+    accepted_model_fingerprint: str = ""
+    quality_positive_hits: int = 0
+    quality_positive_trials: int = 0
+    quality_false_triggers: int = 0
+    quality_score_min: float | None = None
+    quality_score_max: float | None = None
+
     def save(self, path: Path | str) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
