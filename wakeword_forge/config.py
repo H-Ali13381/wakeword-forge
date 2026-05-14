@@ -6,7 +6,7 @@ Every other module imports from here; nothing else carries magic numbers.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
@@ -37,17 +37,33 @@ MIN_NEGATIVES: int = 5
 
 # ── User-facing project config ────────────────────────────────────────────────
 
+
+def normalize_phrases(phrases: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    """Return trimmed, non-empty phrases while preserving first occurrence order."""
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for phrase in phrases:
+        cleaned = " ".join(str(phrase).strip().split())
+        if not cleaned or cleaned in seen:
+            continue
+        normalized.append(cleaned)
+        seen.add(cleaned)
+    return tuple(normalized)
+
+
 @dataclass
 class ForgeConfig:
     """Persisted per-project configuration."""
 
     wake_phrase: str = ""
+    wake_phrases: list[str] = field(default_factory=list)
     project_dir: str = ""
 
     # Recording
     record_positives: int = 20
     record_negatives: int = 10
-    record_duration: float = 2.5   # seconds per take
+    record_duration: float = 4.0   # seconds per take; silence is trimmed before training
 
     # Synthesis
     use_tts_augmentation: bool = True
@@ -85,6 +101,12 @@ class ForgeConfig:
     quality_false_triggers: int = 0
     quality_score_min: float | None = None
     quality_score_max: float | None = None
+
+    @property
+    def phrase_options(self) -> tuple[str, ...]:
+        """Configured trigger phrases/aliases, with ``wake_phrase`` kept as primary."""
+
+        return normalize_phrases((self.wake_phrase, *self.wake_phrases))
 
     def save(self, path: Path | str) -> None:
         path = Path(path)

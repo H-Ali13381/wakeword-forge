@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +41,54 @@ def ensure_project_dirs(config: ForgeConfig) -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
+def _safe_project_target(project_root: Path, target: Path) -> Path:
+    """Resolve a reset target and reject anything outside the project root."""
+
+    project_root = project_root.expanduser().resolve()
+    resolved = target.expanduser().resolve(strict=False)
+    if resolved == project_root or not resolved.is_relative_to(project_root):
+        raise ValueError(f"Refusing to reset unsafe path outside project artifacts: {resolved}")
+    return resolved
+
+
+def _existing_paths_under(path: Path) -> list[Path]:
+    if path.is_dir():
+        return sorted(path.rglob("*")) + [path]
+    return [path]
+
+
+def reset_project(config: ForgeConfig) -> list[Path]:
+    """Delete wakeword-forge artifacts for a project without deleting the project root.
+
+    Removes the persisted config, sample tree, model outputs, cache tree, and generated
+    confusable-phrase cache. Unrelated files in the project directory are preserved.
+    Returns the concrete files/directories that existed and were removed.
+    """
+
+    project_root = config.project_path
+    targets = [
+        project_root / CONFIG_FILENAME,
+        config.samples_path,
+        config.output_path,
+        config.cache_path,
+        config.confusables_cache,
+    ]
+
+    removed: list[Path] = []
+    seen: set[Path] = set()
+    for raw_target in targets:
+        target = _safe_project_target(project_root, raw_target)
+        if target in seen or not target.exists():
+            continue
+        seen.add(target)
+        removed.extend(_existing_paths_under(target))
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    return removed
+
+
 def count_wavs(directory: Path) -> int:
     """Count WAV files below ``directory`` without failing when it is absent."""
     if not directory.exists():
@@ -53,6 +102,7 @@ class ProjectStatus:
 
     project_dir: Path
     wake_phrase: str
+    wake_phrases: tuple[str, ...]
     real_positives: int
     synthetic_positives: int
     negatives: int
@@ -173,9 +223,12 @@ def inspect_project(config: ForgeConfig) -> ProjectStatus:
         sample_review_current,
     )
 
+    phrases = config.phrase_options
+    primary_phrase = phrases[0] if phrases else ""
     return ProjectStatus(
         project_dir=config.project_path,
-        wake_phrase=config.wake_phrase,
+        wake_phrase=primary_phrase,
+        wake_phrases=phrases,
         real_positives=count_wavs(config.positives_path),
         synthetic_positives=count_wavs(config.synthetic_path),
         negatives=count_wavs(config.negatives_path),

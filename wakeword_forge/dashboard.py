@@ -7,16 +7,24 @@ requiring Streamlit, while the app imports Streamlit only when launched.
 from __future__ import annotations
 
 import argparse
+import html
 import importlib.util
 import shlex
 import subprocess
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from .config import ForgeConfig, MIN_NEGATIVES, MIN_POSITIVES
-from .project import ensure_project_dirs, inspect_project, load_or_create_config, save_config
+from wakeword_forge.config import ForgeConfig, MIN_NEGATIVES, MIN_POSITIVES, normalize_phrases
+from wakeword_forge.project import (
+    ensure_project_dirs,
+    inspect_project,
+    load_or_create_config,
+    reset_project,
+    save_config,
+)
 
 DEFAULT_PROJECT_DIR = Path.home() / "wakeword_forge_project"
 
@@ -161,6 +169,54 @@ def _css() -> str:
         font-size: 0.88rem;
         margin-top: 0.3rem;
     }
+    .forge-step-box {
+        border: 1px solid rgba(255, 242, 223, 0.16);
+        border-left-width: 0.38rem;
+        border-radius: 13px;
+        padding: 0.72rem 0.82rem;
+        margin: 0.46rem 0;
+        background: rgba(255, 242, 223, 0.055);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .forge-step-label {
+        color: #fff2df;
+        font-weight: 800;
+        font-size: 0.92rem;
+    }
+    .forge-step-state {
+        display: inline-block;
+        margin-top: 0.22rem;
+        color: rgba(255, 242, 223, 0.74);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+    }
+    .forge-step-note {
+        color: rgba(255, 242, 223, 0.66);
+        font-size: 0.78rem;
+        margin-top: 0.22rem;
+    }
+    .forge-step-done {
+        border-color: rgba(64, 214, 137, 0.72);
+        background: rgba(64, 214, 137, 0.13);
+    }
+    .forge-step-active {
+        border-color: rgba(245, 198, 84, 0.82);
+        background: rgba(245, 198, 84, 0.14);
+    }
+    .forge-step-pending {
+        border-color: rgba(143, 151, 164, 0.54);
+        background: rgba(143, 151, 164, 0.10);
+    }
+    .forge-step-issue {
+        border-color: rgba(255, 88, 88, 0.82);
+        background: rgba(255, 88, 88, 0.13);
+    }
+    .stButton > button[kind="secondary"] {
+        border-color: rgba(210, 168, 93, 0.55);
+        background: rgba(210, 168, 93, 0.13);
+        color: #fff2df;
+    }
     </style>
     """
 
@@ -189,25 +245,116 @@ def _run_blocking_action(label: str, action: Callable[[], object]) -> None:
     st.rerun()
 
 
-def _sidebar_config(st, config: ForgeConfig) -> ForgeConfig:
-    st.sidebar.header("Project settings")
-    project_dir = st.sidebar.text_input("Project directory", value=str(config.project_path))
-    wake_phrase = st.sidebar.text_input("Wake phrase", value=config.wake_phrase)
+DASHBOARD_STEP_KEY = "wakeword_forge_dashboard_step"
+LAST_CAPTURED_TAKE_KEY = "wakeword_forge_last_captured_take"
+RESET_MESSAGE_KEY = "wakeword_forge_reset_message"
+WIZARD_STEPS = ("intro", "workspace", "recording", "augmentation", "capture", "review", "train", "done")
+WIZARD_STEP_LABELS = {
+    "intro": "Start",
+    "workspace": "1. Name the trigger",
+    "recording": "2. Recording plan",
+    "augmentation": "3. Augmentation plan",
+    "capture": "4. Capture examples",
+    "review": "5. Review samples",
+    "train": "6. Train and test",
+    "done": "7. Accept model",
+}
 
-    st.sidebar.subheader("Recording")
-    record_positives = st.sidebar.number_input(
+
+def _set_wizard_step(st, step: str) -> None:
+    st.session_state[DASHBOARD_STEP_KEY] = step
+
+
+def _confirm_step(st, config: ForgeConfig, next_step: str, message: str) -> None:
+    ensure_project_dirs(config)
+    save_config(config)
+    _set_wizard_step(st, next_step)
+    st.success(message)
+    st.rerun()
+
+
+def _phrase_text(config: ForgeConfig) -> str:
+    return "\n".join(config.phrase_options or normalize_phrases((config.wake_phrase,)))
+
+
+def _parse_phrase_text(text: str) -> tuple[str, ...]:
+    return normalize_phrases(tuple(text.splitlines()))
+
+
+def _render_intro_step(st, config: ForgeConfig) -> None:
+    """Render the landing card before asking for project setup details."""
+
+    st.markdown(
+        """
+        <div class="forge-hero">
+          <div class="forge-kicker">local wake-word forge</div>
+          <h1 class="forge-title">Train the trigger. Keep the voice.</h1>
+          <div class="forge-subtitle">
+            Dashboard-first workflow for recording, synthesis, hard negatives,
+            training, export, and local mic testing. No account. No cloud upload.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("")
+    cols = st.columns(3)
+    cards = [
+        _card("Private", "Local", "Recordings stay in the project folder."),
+        _card("Guided", "Wizard", "One decision at a time, then explicit review."),
+        _card("Flexible", "Aliases", "Train one detector for one or more trigger phrases."),
+    ]
+    for col, card in zip(cols, cards):
+        with col:
+            st.markdown(card, unsafe_allow_html=True)
+    if st.button("Begin", type="secondary", use_container_width=True):
+        _set_wizard_step(st, "workspace")
+        st.rerun()
+
+
+def _render_workspace_step(st, config: ForgeConfig) -> ForgeConfig:
+    """Render only workspace/phrase fields for the first wizard step."""
+
+    st.subheader("1. Name the trigger")
+    st.caption("Choose where this project lives and list every phrase that should trigger the detector.")
+    project_dir = st.text_input("Project directory", value=str(config.project_path))
+    phrase_text = st.text_area(
+        "Wake phrases (one per line)",
+        value=_phrase_text(config),
+        help="Use one phrase per line. The first phrase is the primary display name; all lines become positive trigger aliases.",
+    )
+    phrases = _parse_phrase_text(phrase_text)
+
+    updated = replace(
+        config,
+        project_dir=project_dir.strip() or str(DEFAULT_PROJECT_DIR),
+        wake_phrase=phrases[0] if phrases else "",
+        wake_phrases=list(phrases),
+    )
+    can_continue = bool(updated.phrase_options)
+    if st.button("Confirm phrases", type="secondary", disabled=not can_continue, use_container_width=True):
+        _confirm_step(st, updated, "recording", "Phrases confirmed.")
+    return updated
+
+
+def _render_recording_step(st, config: ForgeConfig) -> ForgeConfig:
+    """Render only recording parameters for the second wizard step."""
+
+    st.subheader("2. Recording plan")
+    st.caption("Set the human-recorded examples. No synthesis or training controls here.")
+    record_positives = st.number_input(
         "Target positive recordings",
         min_value=MIN_POSITIVES,
         max_value=200,
         value=max(config.record_positives, MIN_POSITIVES),
     )
-    record_negatives = st.sidebar.number_input(
+    record_negatives = st.number_input(
         "Target negative recordings",
         min_value=MIN_NEGATIVES,
         max_value=200,
         value=max(config.record_negatives, MIN_NEGATIVES),
     )
-    record_duration = st.sidebar.number_input(
+    record_duration = st.number_input(
         "Seconds per take",
         min_value=1.0,
         max_value=8.0,
@@ -215,63 +362,464 @@ def _sidebar_config(st, config: ForgeConfig) -> ForgeConfig:
         step=0.25,
     )
 
-    st.sidebar.subheader("Augmentation")
-    use_tts = st.sidebar.toggle("Use TTS augmentation", value=config.use_tts_augmentation)
-    tts_variants = st.sidebar.number_input(
+    updated = replace(
+        config,
+        record_positives=int(record_positives),
+        record_negatives=int(record_negatives),
+        record_duration=float(record_duration),
+    )
+    if st.button("Confirm recording plan", type="secondary", use_container_width=True):
+        _confirm_step(st, updated, "augmentation", "Recording plan confirmed.")
+    return updated
+
+
+def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
+    """Render only generated-audio parameters for the third wizard step."""
+
+    st.subheader("3. Augmentation plan")
+    st.caption("Decide whether to add generated positives and hard negatives before capture/training.")
+    use_tts = st.toggle("Use TTS augmentation", value=config.use_tts_augmentation)
+    tts_variants = st.number_input(
         "Synthetic positive target",
         min_value=0,
         max_value=2_000,
         value=int(config.tts_variants),
         step=25,
+        disabled=not use_tts,
     )
-    tts_engine = st.sidebar.selectbox(
+    tts_engine = st.selectbox(
         "TTS engine",
         options=["kokoro", "piper", "none"],
         index=["kokoro", "piper", "none"].index(config.tts_engine)
         if config.tts_engine in {"kokoro", "piper", "none"}
         else 0,
+        disabled=not use_tts,
     )
 
-    updated = ForgeConfig(
-        wake_phrase=wake_phrase.strip(),
-        project_dir=project_dir.strip() or str(DEFAULT_PROJECT_DIR),
-        record_positives=int(record_positives),
-        record_negatives=int(record_negatives),
-        record_duration=float(record_duration),
+    updated = replace(
+        config,
         use_tts_augmentation=bool(use_tts),
-        tts_variants=int(tts_variants),
-        tts_engine=str(tts_engine),
-        backend=config.backend,
-        max_epochs=config.max_epochs,
-        contribute_samples=config.contribute_samples,
-        samples_dir=config.samples_dir,
-        output_dir=config.output_dir,
-        cache_dir=config.cache_dir,
-        trained_threshold=config.trained_threshold,
-        trained_eer=config.trained_eer,
-        sample_review_approved=config.sample_review_approved,
-        generated_review_approved=config.generated_review_approved,
-        sample_review_fingerprint=config.sample_review_fingerprint,
-        generated_review_fingerprint=config.generated_review_fingerprint,
-        quality_check_passed=config.quality_check_passed,
-        model_accepted=config.model_accepted,
-        quality_checked_model_path=config.quality_checked_model_path,
-        quality_checked_model_fingerprint=config.quality_checked_model_fingerprint,
-        accepted_model_fingerprint=config.accepted_model_fingerprint,
-        quality_positive_hits=config.quality_positive_hits,
-        quality_positive_trials=config.quality_positive_trials,
-        quality_false_triggers=config.quality_false_triggers,
-        quality_score_min=config.quality_score_min,
-        quality_score_max=config.quality_score_max,
+        tts_variants=int(tts_variants) if use_tts else 0,
+        tts_engine=str(tts_engine) if use_tts else "none",
     )
+    if st.button("Confirm augmentation plan", type="secondary", use_container_width=True):
+        _confirm_step(st, updated, "capture", "Augmentation plan confirmed.")
+    return updated
 
-    if st.sidebar.button("Save settings", type="primary", use_container_width=True):
-        ensure_project_dirs(updated)
-        save_config(updated)
-        st.sidebar.success("Saved forge_config.json")
+
+def _next_recording_path(out_dir: Path, prefix: str) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    index = 0
+    while True:
+        candidate = out_dir / f"{prefix}_{index:04d}.wav"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _record_one_take(*, phrase: str, out_dir: Path, duration: float, prefix: str) -> Path:
+    """Record and save exactly one take for dashboard-driven capture."""
+
+    import soundfile as sf
+
+    from wakeword_forge.config import SAMPLE_RATE
+    from wakeword_forge.recorder import _prepare_recorded_take, _record_take
+
+    _ = phrase  # Phrase is displayed by the dashboard; keep it in the call contract.
+    audio = _prepare_recorded_take(_record_take(duration, SAMPLE_RATE), SAMPLE_RATE)
+
+    out_path = _next_recording_path(out_dir, prefix)
+    sf.write(str(out_path), audio, SAMPLE_RATE, subtype="PCM_16")
+    return out_path
+
+
+def _captured_take_state(path: Path, kind: str, saved_count: int, target_count: int) -> dict[str, object]:
+    return {
+        "path": str(path),
+        "kind": kind,
+        "saved_count": saved_count,
+        "target_count": target_count,
+    }
+
+
+def _last_captured_take(st) -> tuple[Path, str, int, int] | None:
+    state = getattr(st, "session_state", {}).get(LAST_CAPTURED_TAKE_KEY)
+    if not isinstance(state, dict):
+        return None
+    try:
+        path = Path(str(state["path"]))
+        kind = str(state["kind"])
+        saved_count = int(state["saved_count"])
+        target_count = int(state["target_count"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not path.exists():
+        return None
+    return path, kind, saved_count, target_count
+
+
+def _render_last_captured_take(st) -> bool:
+    last_take = _last_captured_take(st)
+    if last_take is None:
+        return False
+
+    path, kind, saved_count, target_count = last_take
+    st.success(f"Saved {kind} take {saved_count}/{target_count}: {path.name}")
+    st.caption("Replay it now. If it sounds right, move to the next recording.")
+    st.button(f"Replay last {kind} take", use_container_width=True)
+    st.audio(str(path), format="audio/wav")
+    if st.button("Next recording", type="secondary", use_container_width=True):
+        st.session_state.pop(LAST_CAPTURED_TAKE_KEY, None)
+        st.rerun()
+    return True
+
+
+def _render_one_take_recorder(
+    st,
+    *,
+    kind: str,
+    phrase: str,
+    current_count: int,
+    target_count: int,
+    out_dir: Path,
+    duration: float,
+    prefix: str,
+) -> None:
+    st.markdown(f"**{current_count} / {target_count} {kind} takes saved**")
+    if current_count >= target_count:
+        st.success(f"All {target_count} {kind} takes are recorded.")
+        return
+
+    next_take = current_count + 1
+    st.caption(f"Take {next_take}: press record, speak `{phrase}`, then replay before moving on.")
+    if st.button(
+        f"Record {kind} take {next_take} of {target_count}",
+        disabled=not bool(phrase),
+        type="primary",
+        use_container_width=True,
+    ):
+        try:
+            with st.spinner(f"Recording {kind} take {next_take}/{target_count}"):
+                saved_path = _record_one_take(
+                    phrase=phrase,
+                    out_dir=out_dir,
+                    duration=duration,
+                    prefix=prefix,
+                )
+        except Exception as exc:  # pragma: no cover - UI error display path.
+            st.error(str(exc))
+            st.exception(exc)
+            return
+
+        st.session_state[LAST_CAPTURED_TAKE_KEY] = _captured_take_state(
+            saved_path,
+            kind,
+            saved_count=next_take,
+            target_count=target_count,
+        )
         st.rerun()
 
-    return updated
+
+def _positive_phrase_for_take(config: ForgeConfig, current_count: int) -> str:
+    phrases = config.phrase_options
+    if not phrases:
+        return config.wake_phrase
+    return phrases[current_count % len(phrases)]
+
+
+def _phrase_list_for_generation(config: ForgeConfig) -> tuple[str, ...]:
+    return config.phrase_options or normalize_phrases((config.wake_phrase,))
+
+
+def _split_count(total: int, buckets: int) -> list[int]:
+    if total <= 0 or buckets <= 0:
+        return []
+    base, remainder = divmod(total, buckets)
+    return [base + (1 if index < remainder else 0) for index in range(buckets)]
+
+
+def _render_capture_step(st, config: ForgeConfig, status) -> None:
+    st.subheader("4. Capture examples")
+    st.caption("Capture one clip at a time: record, replay, then move to the next take.")
+
+    if _render_last_captured_take(st):
+        return
+
+    if status.real_positives < config.record_positives:
+        _render_one_take_recorder(
+            st,
+            kind="wake-phrase",
+            phrase=_positive_phrase_for_take(config, status.real_positives),
+            current_count=status.real_positives,
+            target_count=config.record_positives,
+            out_dir=config.positives_path,
+            duration=config.record_duration,
+            prefix="take",
+        )
+        return
+
+    if status.negatives < config.record_negatives:
+        _render_one_take_recorder(
+            st,
+            kind="counter-example",
+            phrase=f"anything except {' / '.join(_phrase_list_for_generation(config)) or 'the wake phrase'}",
+            current_count=status.negatives,
+            target_count=config.record_negatives,
+            out_dir=config.negatives_path,
+            duration=config.record_duration,
+            prefix="neg",
+        )
+        return
+
+    if config.use_tts_augmentation and config.tts_engine != "none":
+        synth_missing = max(0, config.tts_variants - status.synthetic_positives)
+        if synth_missing > 0:
+            if st.button(f"Generate {synth_missing} TTS positives", use_container_width=True):
+                from wakeword_forge.synthesizer import synthesize_positive_phrases
+
+                _run_blocking_action(
+                    "Generating synthetic positives",
+                    lambda: synthesize_positive_phrases(
+                        phrases=_phrase_list_for_generation(config),
+                        out_dir=config.synthetic_path,
+                        n=synth_missing,
+                        engine=config.tts_engine,
+                    ),
+                )
+            return
+
+        st.success(f"Synthetic positives ready: {status.synthetic_positives}/{config.tts_variants}.")
+
+        from wakeword_forge.synthesizer import load_confusable_phrases
+
+        phrases = _phrase_list_for_generation(config)
+        partial_phrases = tuple(phrase for phrase in phrases if len(phrase.split()) >= 2)
+        partial_target = 100 if partial_phrases else 0
+        confusable_phrases = load_confusable_phrases(config.confusables_cache)
+        confusable_target = 50 if confusable_phrases else 0
+        partial_missing = max(0, partial_target - status.partial_negatives)
+        confusable_missing = max(0, confusable_target - status.confusable_negatives)
+        hard_missing = partial_missing + confusable_missing
+        st.caption(
+            f"Hard negatives: {status.partial_negatives}/{partial_target} partials, "
+            f"{status.confusable_negatives}/{confusable_target} confusables"
+        )
+        if not confusable_phrases:
+            st.caption(
+                "No confusable phrase cache found; add confusable_variants.txt to generate "
+                "confusable hard negatives."
+            )
+        hard_button_label = (
+            f"Generate {hard_missing} hard negatives" if hard_missing else "Hard negatives ready"
+        )
+        if st.button(
+            hard_button_label,
+            disabled=hard_missing == 0,
+            use_container_width=True,
+        ):
+            from wakeword_forge.synthesizer import synthesize_confusable_negatives, synthesize_partial_negatives
+
+            def hard_negatives() -> None:
+                if partial_missing:
+                    for phrase, count in zip(partial_phrases, _split_count(partial_missing, len(partial_phrases))):
+                        if count:
+                            synthesize_partial_negatives(
+                                phrase=phrase,
+                                out_dir=config.partials_path,
+                                n=count,
+                                engine=config.tts_engine,
+                            )
+                if confusable_missing:
+                    synthesize_confusable_negatives(
+                        phrase=config.wake_phrase,
+                        out_dir=config.confusables_path,
+                        cache_file=config.confusables_cache,
+                        n_variants=confusable_missing,
+                        engine=config.tts_engine,
+                    )
+
+            _run_blocking_action("Generating hard negatives", hard_negatives)
+
+    background_target = max(150, config.record_negatives)
+    background_missing = max(0, background_target - status.negatives)
+    st.caption(f"Background negatives: {status.negatives}/{background_target}")
+    background_button_label = (
+        f"Fill {background_missing} background negatives"
+        if background_missing
+        else "Background negatives ready"
+    )
+    if st.button(
+        background_button_label,
+        disabled=background_missing == 0,
+        use_container_width=True,
+    ):
+        from wakeword_forge.negatives import ensure_negatives
+
+        _run_blocking_action(
+            "Creating background negatives",
+            lambda: ensure_negatives(
+                out_dir=config.negatives_path,
+                target=background_target,
+                use_common_voice=False,
+                use_esc50=False,
+            ),
+        )
+    if st.button("Continue to review", disabled=not status.samples_ready, type="secondary", use_container_width=True):
+        _set_wizard_step(st, "review")
+        st.rerun()
+
+
+def _render_train_step(st, config: ForgeConfig, status) -> None:
+    st.subheader("6. Train and test")
+    st.caption("Train only after review gates are current. Quality checking stays explicit.")
+    if st.button("Train detector", type="primary", disabled=not status.ready_to_train, use_container_width=True):
+        from wakeword_forge.trainer import run_training
+
+        _run_blocking_action("Training detector", lambda: run_training(config))
+    if status.has_model:
+        st.code(make_command("quality-check", config.project_path), language="bash")
+        st.code(make_command("accept-model", config.project_path), language="bash")
+    else:
+        st.caption("The quality-check and accept steps unlock after training exports wakeword.onnx.")
+
+
+def _render_done_step(st, config: ForgeConfig) -> None:
+    st.subheader("Model accepted")
+    st.success("This project has a checked and accepted wakeword.onnx.")
+    st.code(make_command("mic-test", config.project_path), language="bash")
+
+
+def _default_wizard_step(status) -> str:
+    if not status.wake_phrase:
+        return "intro"
+    if not status.samples_ready:
+        return "recording"
+    if status.sample_review_required or status.generated_review_required:
+        return "review"
+    if not status.has_model or status.quality_check_required or status.model_acceptance_required:
+        return "train"
+    return "done"
+
+
+def _current_wizard_step(st, status) -> str:
+    step = getattr(st, "session_state", {}).get(DASHBOARD_STEP_KEY)
+    if step not in WIZARD_STEPS:
+        step = _default_wizard_step(status)
+    if not status.wake_phrase and step not in {"intro", "workspace"}:
+        return "intro"
+    return step
+
+
+def _render_current_wizard_step(st, config: ForgeConfig, status, current_step: str | None = None) -> None:
+    step = current_step or _current_wizard_step(st, status)
+    if step == "intro":
+        _render_intro_step(st, config)
+    elif step == "workspace":
+        _render_workspace_step(st, config)
+    elif step == "recording":
+        _render_recording_step(st, config)
+    elif step == "augmentation":
+        _render_augmentation_step(st, config)
+    elif step == "capture":
+        _render_capture_step(st, config, status)
+    elif step == "review":
+        st.subheader("5. Review samples")
+        st.caption("Approve the current sample set before training. If files change, approvals go stale.")
+        _render_review_checkpoints(st, config, status)
+        if st.button("Continue to training", disabled=not status.ready_to_train, type="secondary", use_container_width=True):
+            _set_wizard_step(st, "train")
+            st.rerun()
+    elif step == "train":
+        _render_train_step(st, config, status)
+    else:
+        _render_done_step(st, config)
+
+
+def _workflow_progress_fraction(status) -> float:
+    if not status.wake_phrase:
+        return 0.0
+    if not status.samples_ready:
+        return max(0.08, min(status.progress_fraction, 1.0) * 0.30)
+    if status.sample_review_required:
+        return 0.38
+    if status.generated_review_required:
+        return 0.48
+    if not status.has_model:
+        return 0.62
+    if status.quality_check_required:
+        return 0.76
+    if status.model_acceptance_required:
+        return 0.88
+    return 1.0
+
+
+def _workflow_step_box(label: str, state: str, note: str = "") -> str:
+    state_labels = {
+        "done": "Done",
+        "active": "In progress",
+        "pending": "Not started",
+        "issue": "Issue",
+    }
+    safe_label = html.escape(label)
+    safe_state = html.escape(state_labels[state])
+    safe_note = f'<div class="forge-step-note">{html.escape(note)}</div>' if note else ""
+    return (
+        f'<div class="forge-step-box forge-step-{state}">'
+        f'<div class="forge-step-label">{safe_label}</div>'
+        f'<span class="forge-step-state">{safe_state}</span>'
+        f"{safe_note}"
+        "</div>"
+    )
+
+
+def _workflow_step_state(step: str, current_step: str, issue: bool = False) -> str:
+    if issue:
+        return "issue"
+    current_index = WIZARD_STEPS.index(current_step) if current_step in WIZARD_STEPS else 0
+    step_index = WIZARD_STEPS.index(step)
+    if step_index < current_index:
+        return "done"
+    if step_index == current_index:
+        return "active"
+    return "pending"
+
+
+def _render_progress_sidebar(st, status, current_step: str | None = None) -> None:
+    """Render the sidebar as a compact workflow progress rail."""
+
+    current_step = current_step or _default_wizard_step(status)
+    sidebar = st.sidebar
+    sidebar.header("Progress")
+    sidebar.progress(_workflow_progress_fraction(status), text=status.workflow_stage)
+    sidebar.caption(f"Next step: {status.next_action}")
+    sidebar.divider()
+
+    sidebar.subheader("Run checklist")
+    step_notes = {
+        "intro": "overview and start",
+        "workspace": f"{len(status.wake_phrases)} phrase(s)" if status.wake_phrases else "choose phrases",
+        "recording": f"targets: {MIN_POSITIVES}+ positives / {MIN_NEGATIVES}+ negatives",
+        "augmentation": f"{status.synthetic_positives} synthetic clips",
+        "capture": f"{status.total_positives} positives / {status.total_negatives} negatives",
+        "review": "sample + generated-audio gates",
+        "train": "export ONNX and live quality check",
+        "done": "accepted runtime model",
+    }
+    for step in WIZARD_STEPS:
+        sidebar.markdown(
+            _workflow_step_box(
+                WIZARD_STEP_LABELS[step],
+                _workflow_step_state(step, current_step),
+                step_notes.get(step, ""),
+            ),
+            unsafe_allow_html=True,
+        )
+    sidebar.divider()
+
+    sidebar.subheader("Snapshot")
+    sidebar.metric("Positives", status.total_positives)
+    sidebar.metric("Negatives", status.total_negatives)
+    sidebar.caption(f"Project: {status.project_dir}")
 
 
 def _render_cli_fallbacks(st, config: ForgeConfig) -> None:
@@ -304,12 +852,41 @@ def _render_cli_fallbacks(st, config: ForgeConfig) -> None:
     st.code("\n".join(commands), language="bash")
 
 
+def _clear_reset_session_state(st) -> None:
+    st.session_state.pop(DASHBOARD_STEP_KEY, None)
+    st.session_state.pop(LAST_CAPTURED_TAKE_KEY, None)
+
+
+def _render_start_over_controls(st, config: ForgeConfig) -> None:
+    st.divider()
+    st.subheader("Start over")
+    st.caption(
+        "Deletes this project's forge_config.json, samples, generated audio, model output, "
+        f"and cache. Unrelated files in `{config.project_path}` are preserved."
+    )
+    confirmed = st.checkbox(
+        "I understand this deletes local samples, generated audio, model output, and config"
+    )
+    if st.button(
+        "Wipe configs and start from scratch",
+        disabled=not confirmed,
+        type="secondary",
+        use_container_width=True,
+    ):
+        removed = reset_project(config)
+        _clear_reset_session_state(st)
+        message = f"Project reset. Removed {len(removed)} project artifact(s)."
+        st.session_state[RESET_MESSAGE_KEY] = message
+        st.success(message)
+        st.rerun()
+
+
 def _status_badge(value: bool) -> str:
     return "✅ approved" if value else "⏳ pending"
 
 
 def _render_review_checkpoints(st, config: ForgeConfig, status) -> None:
-    from .review import (
+    from wakeword_forge.review import (
         accept_model,
         approve_generated_review,
         approve_sample_review,
@@ -411,172 +988,25 @@ def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
     st.markdown(_css(), unsafe_allow_html=True)
 
     config = load_or_create_config(Path(project_dir))
-    config = _sidebar_config(st, config)
+
+    reset_message = st.session_state.pop(RESET_MESSAGE_KEY, None)
+    if reset_message:
+        st.success(reset_message)
     ensure_project_dirs(config)
     status = inspect_project(config)
+    current_step = _current_wizard_step(st, status)
+    _render_progress_sidebar(st, status, current_step)
 
-    st.markdown(
-        """
-        <div class="forge-hero">
-          <div class="forge-kicker">local wake-word forge</div>
-          <h1 class="forge-title">Train the trigger. Keep the voice.</h1>
-          <div class="forge-subtitle">
-            Dashboard-first workflow for recording, synthesis, hard negatives,
-            training, export, and local mic testing. No account. No cloud upload.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if current_step != "intro":
+        st.info(f"Next: {status.next_action}")
+    _render_current_wizard_step(st, config, status, current_step)
 
-    st.write("")
-    st.progress(status.progress_fraction, text=status.next_action)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.markdown(
-        _card("positives", str(status.total_positives), f"{status.real_positives} real / {status.synthetic_positives} TTS"),
-        unsafe_allow_html=True,
-    )
-    col2.markdown(
-        _card("negatives", str(status.total_negatives), f"{status.negatives} recorded / {status.confusable_negatives} confusable"),
-        unsafe_allow_html=True,
-    )
-    col3.markdown(
-        _card("hard partials", str(status.partial_negatives), "multi-word false-positive guard"),
-        unsafe_allow_html=True,
-    )
-    model_note = "exported" if status.has_model else "not trained yet"
-    col4.markdown(_card("model", "ONNX" if status.has_model else "—", model_note), unsafe_allow_html=True)
-
-    st.write("")
-    st.info(f"Next: {status.next_action}")
-    _render_review_checkpoints(st, config, status)
-
-    actions_left, actions_mid, actions_right = st.columns(3)
-
-    with actions_left:
-        st.subheader("1. Capture")
-        pos_missing = max(1, config.record_positives - status.real_positives)
-        neg_missing = max(1, config.record_negatives - status.negatives)
-        if st.button(
-            f"Record {pos_missing} wake-phrase takes",
-            disabled=not bool(config.wake_phrase),
-            use_container_width=True,
-        ):
-            from .recorder import record_session
-
-            _run_blocking_action(
-                "Recording positive examples",
-                lambda: record_session(
-                    phrase=config.wake_phrase,
-                    n_takes=pos_missing,
-                    out_dir=config.positives_path,
-                    duration=config.record_duration,
-                    label="positives",
-                ),
-            )
-        if st.button(
-            f"Record {neg_missing} counter-examples",
-            disabled=not bool(config.wake_phrase),
-            use_container_width=True,
-        ):
-            from .recorder import record_session
-
-            _run_blocking_action(
-                "Recording negative examples",
-                lambda: record_session(
-                    phrase=f"anything except '{config.wake_phrase}'",
-                    n_takes=neg_missing,
-                    out_dir=config.negatives_path,
-                    duration=config.record_duration,
-                    label="negatives",
-                ),
-            )
-
-    with actions_mid:
-        st.subheader("2. Augment")
-        synth_missing = max(0, config.tts_variants - status.synthetic_positives)
-        synth_disabled = (
-            not config.wake_phrase
-            or not config.use_tts_augmentation
-            or config.tts_engine == "none"
-            or synth_missing == 0
-        )
-        if st.button(
-            f"Generate {synth_missing} TTS positives",
-            disabled=synth_disabled,
-            use_container_width=True,
-        ):
-            from .synthesizer import synthesize_positives
-
-            _run_blocking_action(
-                "Generating synthetic positives",
-                lambda: synthesize_positives(
-                    phrase=config.wake_phrase,
-                    out_dir=config.synthetic_path,
-                    n=synth_missing,
-                    engine=config.tts_engine,
-                ),
-            )
-        if st.button(
-            "Generate hard negatives",
-            disabled=not config.wake_phrase or config.tts_engine == "none",
-            use_container_width=True,
-        ):
-            from .synthesizer import synthesize_confusable_negatives, synthesize_partial_negatives
-
-            def hard_negatives() -> None:
-                if len(config.wake_phrase.split()) >= 2:
-                    synthesize_partial_negatives(
-                        phrase=config.wake_phrase,
-                        out_dir=config.partials_path,
-                        n=max(0, 100 - status.partial_negatives),
-                        engine=config.tts_engine,
-                    )
-                synthesize_confusable_negatives(
-                    phrase=config.wake_phrase,
-                    out_dir=config.confusables_path,
-                    cache_file=config.confusables_cache,
-                    n_variants=max(0, 50 - status.confusable_negatives),
-                    engine=config.tts_engine,
-                )
-
-            _run_blocking_action("Generating hard negatives", hard_negatives)
-        if st.button("Fill background negatives", use_container_width=True):
-            from .negatives import ensure_negatives
-
-            _run_blocking_action(
-                "Creating background negatives",
-                lambda: ensure_negatives(
-                    out_dir=config.negatives_path,
-                    target=max(150, config.record_negatives),
-                    use_common_voice=False,
-                    use_esc50=False,
-                ),
-            )
-
-    with actions_right:
-        st.subheader("3. Train & test")
-        if st.button(
-            "Train detector",
-            type="primary",
-            disabled=not status.ready_to_train,
-            use_container_width=True,
-        ):
-            from .trainer import run_training
-
-            _run_blocking_action("Training detector", lambda: run_training(config))
-        st.caption("Live mic test is still CLI-first because it needs a foreground audio stream.")
-        st.code(make_command("mic-test", config.project_path), language="bash")
-        if status.trained_eer is not None:
-            st.metric("Validation EER", f"{status.trained_eer:.3f}")
-        st.metric("Threshold", f"{status.trained_threshold:.4f}")
-
-    with st.expander("Status details", expanded=False):
+    with st.expander("Advanced status and CLI fallback", expanded=False):
         st.json(
             {
                 "project_dir": str(status.project_dir),
                 "wake_phrase": status.wake_phrase,
+                "wake_phrases": list(status.wake_phrases),
                 "workflow_stage": status.workflow_stage,
                 "next_action": status.next_action,
                 "ready_to_train": status.ready_to_train,
@@ -596,8 +1026,8 @@ def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
                 },
             }
         )
-
-    _render_cli_fallbacks(st, config)
+        _render_cli_fallbacks(st, config)
+        _render_start_over_controls(st, config)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, Sequence, runtime_checkable
 
 import numpy as np
 import soundfile as sf
@@ -28,6 +28,18 @@ from rich.progress import track
 from .config import SAMPLE_RATE
 
 console = Console()
+
+
+def _next_numbered_index(out_dir: Path, prefix: str) -> int:
+    """Return the next free numeric suffix for files like ``prefix_0001.wav``."""
+
+    highest = -1
+    stem_prefix = f"{prefix}_"
+    for path in out_dir.glob(f"{stem_prefix}*.wav"):
+        suffix = path.stem.removeprefix(stem_prefix)
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    return highest + 1
 
 
 # ── Text variants ─────────────────────────────────────────────────────────────
@@ -189,6 +201,7 @@ def synthesize_positives(
 
     variants = _text_variants(phrase)
     saved: list[Path] = []
+    start_index = _next_numbered_index(out_dir, "synth")
 
     speeds = [0.85, 0.9, 0.95, 1.0, 1.0, 1.05, 1.1, 1.15]
 
@@ -210,7 +223,7 @@ def synthesize_positives(
             wav_t = torchaudio.functional.resample(wav_t, sr, SAMPLE_RATE)
             audio = wav_t.squeeze(0).numpy()
 
-        out_path = out_dir / f"synth_{i:05d}.wav"
+        out_path = out_dir / f"synth_{start_index + len(saved):05d}.wav"
         sf.write(str(out_path), audio, SAMPLE_RATE, subtype="PCM_16")
         saved.append(out_path)
 
@@ -218,6 +231,46 @@ def synthesize_positives(
         f"[bold green]Synthesis complete.[/bold green] "
         f"{len(saved)} samples saved to [cyan]{out_dir}[/cyan]\n"
     )
+    return saved
+
+
+def _clean_phrase_sequence(phrases: Sequence[str]) -> tuple[str, ...]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for phrase in phrases:
+        value = " ".join(str(phrase).strip().split())
+        if value and value not in seen:
+            cleaned.append(value)
+            seen.add(value)
+    return tuple(cleaned)
+
+
+def _split_count(total: int, buckets: int) -> list[int]:
+    if total <= 0 or buckets <= 0:
+        return []
+    base, remainder = divmod(total, buckets)
+    return [base + (1 if index < remainder else 0) for index in range(buckets)]
+
+
+def synthesize_positive_phrases(
+    phrases: Sequence[str],
+    out_dir: Path,
+    n: int = 300,
+    engine: str = "kokoro",
+    seed: int = 42,
+) -> list[Path]:
+    """Generate synthetic positives distributed across one or more trigger phrases."""
+
+    phrase_list = _clean_phrase_sequence(phrases)
+    if not phrase_list or n <= 0:
+        return []
+    if len(phrase_list) == 1:
+        return synthesize_positives(phrase_list[0], out_dir, n=n, engine=engine, seed=seed)
+
+    saved: list[Path] = []
+    for index, (phrase, count) in enumerate(zip(phrase_list, _split_count(n, len(phrase_list)))):
+        if count:
+            saved.extend(synthesize_positives(phrase, out_dir, n=count, engine=engine, seed=seed + index))
     return saved
 
 
@@ -276,6 +329,7 @@ def synthesize_confusable_negatives(
     out_dir.mkdir(parents=True, exist_ok=True)
     speeds = [0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
     saved: list[Path] = []
+    start_index = _next_numbered_index(out_dir, "confusable")
 
     for i in track(range(n_variants), description="Confusables..."):
         text = random.choice(confusables)
@@ -293,7 +347,7 @@ def synthesize_confusable_negatives(
             wav_t = torchaudio.functional.resample(wav_t, sr, SAMPLE_RATE)
             audio = wav_t.squeeze(0).numpy()
 
-        out_path = out_dir / f"confusable_{i:04d}.wav"
+        out_path = out_dir / f"confusable_{start_index + len(saved):04d}.wav"
         sf.write(str(out_path), audio, SAMPLE_RATE, subtype="PCM_16")
         saved.append(out_path)
 
@@ -343,6 +397,7 @@ def synthesize_partial_negatives(
 
     speeds = [0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
     saved: list[Path] = []
+    start_index = _next_numbered_index(out_dir, "partial")
 
     for i in track(range(n), description="Partial negatives..."):
         text = random.choice(partials)
@@ -360,7 +415,7 @@ def synthesize_partial_negatives(
             wav_t = torchaudio.functional.resample(wav_t, sr, SAMPLE_RATE)
             audio = wav_t.squeeze(0).numpy()
 
-        out_path = out_dir / f"partial_{i:04d}.wav"
+        out_path = out_dir / f"partial_{start_index + len(saved):04d}.wav"
         sf.write(str(out_path), audio, SAMPLE_RATE, subtype="PCM_16")
         saved.append(out_path)
 
