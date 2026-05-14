@@ -1,0 +1,34 @@
+%%{init: {"theme":"base", "flowchart":{"curve":"basis","nodeSpacing":55,"rankSpacing":80,"padding":20,"htmlLabels":true}, "themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#111827","primaryBorderColor":"#111827","lineColor":"#374151","fontFamily":"Arial, sans-serif","fontSize":"22px","clusterBkg":"#f8fafc","clusterBorder":"#cbd5e1","edgeLabelBackground":"#ffffff"}}}%%
+flowchart LR
+    U([User])
+
+    UI["Dashboard or CLI<br/><b>choose phrase</b><br/>record / synth / train"]
+    CFG["Project config<br/><b>forge_config.json</b><br/>wake phrase • paths • backend=dscnn"]
+    DATA["Local data folders<br/><b>samples/</b><br/>positives • negatives • synthetic<br/>partials • confusables"]
+    TRAIN["Training orchestrator<br/><b>run_training(config)</b><br/>collect WAVs • augment • validate"]
+    DSCNN["DS-CNN trainer<br/><b>DSCNNTrainer.train()</b><br/>split • sample • BCE train"]
+    MODEL["Detector graph<br/><b>Log-mel + DS-CNN</b><br/>16 kHz waveform → score"]
+    OUT["Runtime artifacts<br/><b>wakeword.onnx</b><br/>config.json • threshold • metadata"]
+    USE["Use it<br/><b>live mic test</b><br/>or local voice app"]
+    QA["Release hygiene<br/><b>make check</b><br/>pytest • ruff • license/docs"]
+
+    U --> UI --> CFG --> DATA --> TRAIN --> DSCNN --> MODEL --> OUT --> USE
+    QA -. verifies .-> UI
+    QA -. verifies .-> TRAIN
+    QA -. documents .-> OUT
+
+    classDef user fill:#111827,stroke:#111827,color:#ffffff,stroke-width:2px
+    classDef interface fill:#dbeafe,stroke:#2563eb,color:#111827,stroke-width:2px
+    classDef state fill:#ede9fe,stroke:#7c3aed,color:#111827,stroke-width:2px
+    classDef data fill:#fef3c7,stroke:#d97706,color:#111827,stroke-width:2px
+    classDef train fill:#dcfce7,stroke:#16a34a,color:#111827,stroke-width:2px
+    classDef output fill:#ffe4e6,stroke:#e11d48,color:#111827,stroke-width:2px
+    classDef verify fill:#f1f5f9,stroke:#64748b,color:#111827,stroke-width:2px
+
+    class U user
+    class UI interface
+    class CFG state
+    class DATA data
+    class TRAIN,DSCNN,MODEL train
+    class OUT,USE output
+    class QA verify

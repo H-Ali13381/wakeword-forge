@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+.venv/
+venv/
+.uv/
+
+# Project data (large, never commit)
+**/samples/
+**/output/
+**/.cache/
+*.onnx
+*.pt
+*.wav
+*.mp3
+
+# Dev artifacts (benchmark runs and debug scripts)
+benchmark_results/
+check_db.py
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
