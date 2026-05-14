@@ -61,7 +61,7 @@ class DSCNNDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, float]:
         path, label, use_aug = self.items[idx]
-        wav = _load_wav(path)
+        wav = _load_wav(path, trim_silence=True)
         wav = self.augmentor(wav) if use_aug and self.augmentor else _pad_or_trim(wav)
         return wav.squeeze(0), float(label)
 

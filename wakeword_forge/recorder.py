@@ -22,6 +22,7 @@ import soundfile as sf
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
+from .audio import trim_silence_edges
 from .config import SAMPLE_RATE, MAX_DURATION
 
 console = Console()
@@ -46,6 +47,16 @@ def _amplitude_bar(audio: np.ndarray, width: int = 40) -> str:
     bar = "█" * level + "░" * (width - level)
     db = 20 * np.log10(rms + 1e-9)
     return f"[{'green' if level > 4 else 'red'}]{bar}[/] {db:+.1f} dB"
+
+
+def _prepare_recorded_take(audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Trim edge silence and reject recordings that remain too quiet."""
+
+    trimmed = trim_silence_edges(audio, sample_rate=sample_rate)
+    rms = float(np.sqrt(np.mean(trimmed ** 2)))
+    if rms < 0.005:
+        raise ValueError("Mic too quiet — check your microphone.")
+    return trimmed
 
 
 def record_session(
@@ -101,13 +112,13 @@ def record_session(
 
         audio = _record_take(duration, sample_rate)
 
-        console.print(f"\n  Level: {_amplitude_bar(audio)}")
-
-        # Quick silence check
-        rms = float(np.sqrt(np.mean(audio ** 2)))
-        if rms < 0.005:
-            console.print("  [red]Mic too quiet — check your microphone.[/red]")
+        try:
+            audio = _prepare_recorded_take(audio, sample_rate)
+        except ValueError as exc:
+            console.print(f"  [red]{exc}[/red]")
             continue
+
+        console.print(f"\n  Level: {_amplitude_bar(audio)}")
 
         # Playback option
         if Confirm.ask("  Play back?", default=False):

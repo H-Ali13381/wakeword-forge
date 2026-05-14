@@ -84,11 +84,15 @@ def run_training(config: ForgeConfig) -> Path:
 
     if backend == "dscnn":
         from .models.dscnn_trainer import DSCNNTrainer
+        from .review import reset_trained_output_approval, training_data_fingerprint
+
         trainer = DSCNNTrainer(config)
         trainer.train(all_pos, all_neg, partial_files=partial_files, augmentor=augmentor)
         onnx_path = trainer.export_onnx()
         config.trained_threshold = trainer._threshold
         config.trained_eer = trainer._eer
+        config.trained_sample_fingerprint = training_data_fingerprint(config)
+        reset_trained_output_approval(config)
     else:  # pragma: no cover - validate_backend guards this branch.
         raise AssertionError(f"Unsupported backend escaped validation: {backend}")
 

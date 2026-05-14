@@ -25,11 +25,17 @@ import torch
 import torchaudio
 
 from .config import SAMPLE_RATE, MAX_SAMPLES
+from .audio import trim_silence_edges
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _load_wav(path: Path, target_sr: int = SAMPLE_RATE) -> torch.Tensor:
+def _load_wav(
+    path: Path,
+    target_sr: int = SAMPLE_RATE,
+    *,
+    trim_silence: bool = False,
+) -> torch.Tensor:
     """Load a wav/flac/ogg file and resample to target_sr. Returns (1, T) float32 tensor.
 
     Uses soundfile instead of torchaudio.load to avoid the torchcodec dependency
@@ -39,6 +45,8 @@ def _load_wav(path: Path, target_sr: int = SAMPLE_RATE) -> torch.Tensor:
     # data shape: (T,) mono or (T, C) multichannel
     if data.ndim == 2:
         data = data.mean(axis=1)           # mix down to mono
+    if trim_silence:
+        data = trim_silence_edges(data, sample_rate=sr)
     wav = torch.from_numpy(data).unsqueeze(0)   # (1, T)
     if sr != target_sr:
         wav = torchaudio.functional.resample(wav, sr, target_sr)

@@ -24,7 +24,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from .config import MIN_NEGATIVES, MIN_POSITIVES
-from .project import count_wavs, load_or_create_config, save_config
+from .project import count_wavs, inspect_project, load_or_create_config, save_config
 
 app = typer.Typer(
     name="wakeword-forge",
@@ -32,6 +32,122 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _rel(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def _print_inventory(config) -> None:
+    from .review import sample_inventory
+
+    inventory = sample_inventory(config)
+    table = Table(title="Sample review", show_lines=False)
+    table.add_column("Group", style="bold cyan")
+    table.add_column("Count", justify="right")
+    table.add_column("Examples")
+    for label, paths in (
+        ("positives", inventory.positives),
+        ("negatives", inventory.negatives),
+        ("synthetic positives", inventory.synthetic),
+        ("partial hard negatives", inventory.partials),
+        ("confusable hard negatives", inventory.confusables),
+    ):
+        examples = ", ".join(_rel(path, config.project_path) for path in paths[:3])
+        if len(paths) > 3:
+            examples += f", … +{len(paths) - 3} more"
+        table.add_row(label, str(len(paths)), examples or "[dim]none[/dim]")
+    console.print(table)
+
+
+def _numbered_paths(paths: list[Path], root: Path, *, title: str) -> None:
+    if not paths:
+        console.print(f"[dim]{title}: none[/dim]")
+        return
+    table = Table(title=title, show_header=True)
+    table.add_column("#", justify="right", style="bold cyan")
+    table.add_column("File")
+    for idx, path in enumerate(paths, start=1):
+        table.add_row(str(idx), _rel(path, root))
+    console.print(table)
+
+
+def _paths_from_indices(paths: list[Path], raw: str) -> list[Path]:
+    selected: list[Path] = []
+    for token in raw.replace(",", " ").split():
+        try:
+            idx = int(token)
+        except ValueError:
+            continue
+        if 1 <= idx <= len(paths):
+            selected.append(paths[idx - 1])
+    return selected
+
+
+def _prompt_delete(paths: list[Path], root: Path) -> None:
+    if not paths:
+        return
+    raw = Prompt.ask(
+        "Delete any bad clips by number? Leave blank to keep all",
+        default="",
+        show_default=False,
+    ).strip()
+    if not raw:
+        return
+    from .review import delete_samples
+
+    removed = delete_samples(_paths_from_indices(paths, raw))
+    for path in removed:
+        console.print(f"[yellow]Deleted[/yellow] {_rel(path, root)}")
+
+
+def _approve_samples_interactively(config) -> bool:
+    from .review import approve_sample_review, sample_inventory
+
+    _print_inventory(config)
+    inventory = sample_inventory(config)
+    _numbered_paths(inventory.all_samples, config.project_path, title="All reviewable samples")
+    _prompt_delete(inventory.all_samples, config.project_path)
+    if Confirm.ask("Looks good — train with these samples?", default=False):
+        approve_sample_review(config)
+        save_config(config)
+        console.print("[green]Sample review approved.[/green]")
+        return True
+    console.print("[yellow]Sample review not approved; stopping before training.[/yellow]")
+    return False
+
+
+def _approve_generated_interactively(config, *, limit: int = 12) -> bool:
+    from .review import approve_generated_review, select_generated_audit_samples
+
+    audit_paths = select_generated_audit_samples(config, limit=limit)
+    _numbered_paths(audit_paths, config.project_path, title="Generated-audio audit sample")
+    _prompt_delete(audit_paths, config.project_path)
+    if Confirm.ask("Generated clips sound usable?", default=False):
+        approve_generated_review(config)
+        save_config(config)
+        console.print("[green]Generated-audio audit approved.[/green]")
+        return True
+    console.print("[yellow]Generated-audio audit not approved; stopping before training.[/yellow]")
+    return False
+
+
+def _print_quality_report(report) -> None:
+    table = Table(title="Guided quality check", show_header=False)
+    table.add_column("Metric", style="bold cyan")
+    table.add_column("Value")
+    table.add_row("Positive detections", f"{report.positive_hits}/{report.positive_trials}")
+    table.add_row("Missed positives", str(report.positive_misses))
+    table.add_row("False triggers", f"{report.false_triggers}/{report.negative_trials}")
+    score_range = "n/a"
+    if report.score_min is not None and report.score_max is not None:
+        score_range = f"{report.score_min:.3f}–{report.score_max:.3f}"
+    table.add_row("Score range", score_range)
+    table.add_row("Result", "PASS" if report.passed else "NEEDS MORE WORK")
+    console.print(table)
 
 
 # ── run ───────────────────────────────────────────────────────────────────────
@@ -174,16 +290,39 @@ def run(
             use_esc50=False,
         )
 
-    # ── Step 5: Train ─────────────────────────────────────────────────────────
+    # ── Step 5: Human review gates ─────────────────────────────────────────────
+    status = inspect_project(config)
+    if status.sample_review_required:
+        console.print("\n[bold]Step 4a:[/bold] Review samples before training")
+        if not _approve_samples_interactively(config):
+            raise typer.Exit(1)
+
+    status = inspect_project(config)
+    if status.generated_review_required:
+        console.print("\n[bold]Step 4b:[/bold] Audit generated audio before training")
+        if not _approve_generated_interactively(config):
+            raise typer.Exit(1)
+
+    status = inspect_project(config)
+    if not status.ready_to_train:
+        console.print(f"[red]{status.next_action}[/red]")
+        raise typer.Exit(1)
+
+    # ── Step 6: Train ─────────────────────────────────────────────────────────
     console.print("\n[bold]Training...[/bold]")
     from .trainer import run_training
     try:
         onnx_path = run_training(config)
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
-    # ── Step 6: Privacy opt-in ────────────────────────────────────────────────
+    console.print(
+        "[yellow]Model is trained but not accepted yet.[/yellow] "
+        "Run `wakeword-forge quality-check --dir ...` before treating it as final."
+    )
+
+    # ── Step 7: Privacy opt-in ────────────────────────────────────────────────
     if not config.contribute_samples:
         config.contribute_samples = Confirm.ask(
             "\nWould you like to contribute your anonymized samples "
@@ -250,16 +389,179 @@ def synth(
     synthesize_positives(phrase=phrase, out_dir=out, n=n, engine=engine)
 
 
+# ── review-samples ────────────────────────────────────────────────────────────
+
+@app.command("review-samples")
+def review_samples(
+    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    approve: bool = typer.Option(False, "--approve", help="Approve without prompting."),
+) -> None:
+    """Review captured samples and explicitly approve them for training."""
+
+    config = load_or_create_config(project_dir)
+    _print_inventory(config)
+    if approve:
+        from .review import approve_sample_review
+
+        approve_sample_review(config)
+        save_config(config)
+        console.print("[green]Sample review approved.[/green]")
+        return
+    if not _approve_samples_interactively(config):
+        raise typer.Exit(1)
+
+
+# ── audit-generated ───────────────────────────────────────────────────────────
+
+@app.command("audit-generated")
+def audit_generated(
+    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    limit: int = typer.Option(12, "--limit", help="Number of generated clips to spot-check."),
+    approve: bool = typer.Option(False, "--approve", help="Approve without prompting."),
+) -> None:
+    """Spot-check generated TTS and hard-negative clips before training."""
+
+    config = load_or_create_config(project_dir)
+    if approve:
+        from .review import approve_generated_review
+
+        approve_generated_review(config)
+        save_config(config)
+        console.print("[green]Generated-audio audit approved.[/green]")
+        return
+    if not _approve_generated_interactively(config, limit=limit):
+        raise typer.Exit(1)
+
+
+# ── quality-check ─────────────────────────────────────────────────────────────
+
+@app.command("quality-check")
+def quality_check(
+    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    model: Optional[Path] = typer.Option(None, "--model", "-m"),
+    positive_trials: int = typer.Option(5, "--positive-trials"),
+    near_miss_trials: int = typer.Option(3, "--near-miss-trials"),
+    silence_trials: int = typer.Option(2, "--silence-trials"),
+    duration: float = typer.Option(2.0, "--duration", help="Seconds per guided trial."),
+    accept: bool = typer.Option(False, "--accept", help="Accept the model if the check passes."),
+) -> None:
+    """Run a guided post-training quality protocol and store the result."""
+
+    import numpy as np
+    import onnxruntime as ort
+    import sounddevice as sd
+
+    from .config import SAMPLE_RATE
+    from .review import (
+        QualityObservation,
+        accept_model,
+        record_quality_check,
+        summarize_quality_observations,
+    )
+
+    config = load_or_create_config(project_dir)
+    model_path = model or (config.output_path / "wakeword.onnx")
+    if not model_path.exists():
+        console.print(f"[red]Model not found: {model_path}[/red]")
+        raise typer.Exit(1)
+
+    threshold = config.trained_threshold
+    console.print(Panel.fit(
+        "[bold cyan]Guided quality check[/bold cyan]\n"
+        f"Wake phrase: [bold]{config.wake_phrase or '?'}[/bold]\n"
+        f"Threshold: [yellow]{threshold:.4f}[/yellow]",
+        border_style="cyan",
+    ))
+
+    sess = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+    input_name = sess.get_inputs()[0].name
+
+    def record_score(prompt: str) -> float:
+        Prompt.ask(prompt + " Press Enter when ready", default="", show_default=False)
+        audio = sd.rec(
+            int(duration * SAMPLE_RATE),
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+        )
+        sd.wait()
+        mono = audio[:, 0].astype(np.float32)
+        score = float(sess.run(None, {input_name: mono[None]})[0][0])
+        console.print(f"Score: [bold]{score:.3f}[/bold]")
+        return score
+
+    observations: list[QualityObservation] = []
+    for idx in range(positive_trials):
+        observations.append(QualityObservation(
+            kind="positive",
+            score=record_score(f"Positive {idx + 1}/{positive_trials}: say '{config.wake_phrase}'."),
+        ))
+    for idx in range(near_miss_trials):
+        observations.append(QualityObservation(
+            kind="near_miss",
+            score=record_score(
+                f"Near miss {idx + 1}/{near_miss_trials}: say something similar, not the wake phrase."
+            ),
+        ))
+    for idx in range(silence_trials):
+        observations.append(QualityObservation(
+            kind="silence",
+            score=record_score(f"Silence/background {idx + 1}/{silence_trials}: stay quiet."),
+        ))
+
+    report = summarize_quality_observations(observations, threshold=threshold)
+    _print_quality_report(report)
+    record_quality_check(config, report, model_path=model_path)
+
+    if report.passed:
+        if accept or Confirm.ask("Accept this model now?", default=False):
+            try:
+                accept_model(config)
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+            else:
+                console.print("[green]Model accepted.[/green]")
+    else:
+        console.print("[yellow]Quality check did not pass; collect more samples or retrain.[/yellow]")
+    save_config(config)
+
+
+# ── accept-model ──────────────────────────────────────────────────────────────
+
+@app.command("accept-model")
+def accept_model_command(
+    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+) -> None:
+    """Accept the current model after a passing guided quality check."""
+
+    from .review import accept_model
+
+    config = load_or_create_config(project_dir)
+    try:
+        accept_model(config)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    save_config(config)
+    console.print("[green]Model accepted.[/green]")
+
+
 # ── train ─────────────────────────────────────────────────────────────────────
 
 @app.command()
 def train(
     project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
     backend: str = typer.Option("dscnn", "--backend", "-b", help="Supported backend: dscnn"),
+    force: bool = typer.Option(False, "--force", help="Bypass human review gates."),
 ) -> None:
     """Train using existing samples in the project directory."""
     config = load_or_create_config(project_dir)
     config.backend = backend
+    status = inspect_project(config)
+    if not force and not status.ready_to_train:
+        console.print(f"[red]{status.next_action}[/red]")
+        console.print("[dim]Use review-samples/audit-generated first, or pass --force.[/dim]")
+        raise typer.Exit(1)
     from .trainer import run_training
     run_training(config)
 
@@ -338,6 +640,7 @@ def info(
 ) -> None:
     """Show project status."""
     config = load_or_create_config(project_dir)
+    status = inspect_project(config)
 
     t = Table(title="Project Status", show_header=False, box=None, padding=(0, 2))
     t.add_column("Key", style="bold cyan")
@@ -345,9 +648,15 @@ def info(
 
     t.add_row("Wake phrase",    config.wake_phrase or "[dim]not set[/dim]")
     t.add_row("Project dir",    str(project_dir))
+    t.add_row("Stage",          status.workflow_stage)
+    t.add_row("Next action",    status.next_action)
     t.add_row("Positives",      str(count_wavs(config.positives_path)))
     t.add_row("Synthetic pos",  str(count_wavs(config.synthetic_path)))
     t.add_row("Negatives",      str(count_wavs(config.negatives_path)))
+    t.add_row("Sample review",  "approved" if status.sample_review_approved else "[dim]pending[/dim]")
+    t.add_row("Generated audit", "approved" if status.generated_review_approved else "[dim]pending[/dim]")
+    t.add_row("Quality check",  "passed" if status.quality_check_passed else "[dim]pending[/dim]")
+    t.add_row("Model accepted", "yes" if status.model_accepted else "[dim]no[/dim]")
     t.add_row("Backend",        config.backend)
     t.add_row("TTS engine",     config.tts_engine)
     t.add_row("Trained EER",    f"{config.trained_eer:.4f}" if config.trained_eer else "[dim]not trained[/dim]")

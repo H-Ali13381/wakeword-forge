@@ -133,6 +133,7 @@ def _generate_synthetic_negatives(out_dir: Path, n: int, seed: int = 0) -> list[
     """
     rng = np.random.default_rng(seed)
     saved: list[Path] = []
+    start_index = _next_numbered_index(out_dir, "synthetic_neg")
 
     for i in track(range(n), description="Generating synthetic negatives..."):
         kind = i % 4
@@ -162,7 +163,7 @@ def _generate_synthetic_negatives(out_dir: Path, n: int, seed: int = 0) -> list[
             wav = np.zeros(MAX_SAMPLES, dtype=np.float32)
             wav[:duration_samples] = tone.astype(np.float32)
 
-        out_path = out_dir / f"synthetic_neg_{i:04d}.wav"
+        out_path = out_dir / f"synthetic_neg_{start_index + len(saved):04d}.wav"
         sf.write(str(out_path), wav, SAMPLE_RATE, subtype="PCM_16")
         saved.append(out_path)
 
@@ -226,6 +227,18 @@ def _download_common_voice_clips(
     return saved
 
 
+def _next_numbered_index(out_dir: Path, prefix: str) -> int:
+    """Return the next free numeric suffix for files like ``prefix_0001.wav``."""
+
+    highest = -1
+    stem_prefix = f"{prefix}_"
+    for path in out_dir.glob(f"{stem_prefix}*.wav"):
+        suffix = path.stem.removeprefix(stem_prefix)
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    return highest + 1
+
+
 # ── Main entry point ───────────────────────────────────────────────────────────
 
 def ensure_negatives(
@@ -246,7 +259,7 @@ def ensure_negatives(
     Returns list of all .wav files in out_dir after the call.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    existing = list(out_dir.glob("*.wav"))
+    existing = sorted(out_dir.glob("*.wav"))
     needed = target - len(existing)
 
     if needed <= 0:
@@ -262,8 +275,10 @@ def ensure_negatives(
 
     saved: list[Path] = []
 
-    # Stage 1: Synthetic — always run, fast
-    synth_n = min(needed, 100)
+    # Stage 1: Synthetic — always run, fast. If optional external sources are
+    # disabled, fill the entire target locally instead of leaving a repeat-click
+    # no-op gap below the requested target.
+    synth_n = min(needed, 100) if (use_common_voice or use_esc50) else needed
     console.print(f"[bold]Stage 1:[/bold] generating {synth_n} synthetic clips...")
     saved += _generate_synthetic_negatives(out_dir, synth_n, seed=seed)
     needed -= len(saved)
@@ -285,7 +300,7 @@ def ensure_negatives(
         except Exception as e:
             console.print(f"[yellow]ESC-50 download failed: {e}[/yellow]")
 
-    all_wavs = list(out_dir.glob("*.wav"))
+    all_wavs = sorted(out_dir.glob("*.wav"))
     console.print(
         f"[bold green]Negatives ready:[/bold green] "
         f"{len(all_wavs)} clips in [cyan]{out_dir}[/cyan]"
