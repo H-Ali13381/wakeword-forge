@@ -215,7 +215,9 @@ class CaptureFakeSt:
         self.captions: list[str] = []
         self.markdowns: list[str] = []
         self.successes: list[str] = []
+        self.warnings: list[str] = []
         self.errors: list[str] = []
+        self.codes: list[tuple[str, dict]] = []
         self.audios: list[tuple[object, dict]] = []
 
     def subheader(self, *_args, **_kwargs):
@@ -230,8 +232,14 @@ class CaptureFakeSt:
     def success(self, text, **_kwargs):
         self.successes.append(str(text))
 
+    def warning(self, text, **_kwargs):
+        self.warnings.append(str(text))
+
     def error(self, text, **_kwargs):
         self.errors.append(str(text))
+
+    def code(self, text, **kwargs):
+        self.codes.append((str(text), kwargs))
 
     def audio(self, data, **kwargs):
         self.audios.append((data, kwargs))
@@ -285,6 +293,67 @@ def test_intro_step_renders_title_card_and_begin_button(tmp_path):
     assert fake.button_kwargs["Begin"]["type"] == "secondary"
     assert fake.session_state[dashboard.DASHBOARD_STEP_KEY] == "workspace"
     assert fake.session_state["rerun_requested"] is True
+
+
+def test_update_notice_warns_when_github_has_new_commits():
+    from wakeword_forge.update_check import UpdateRecommendation
+
+    fake = CaptureFakeSt()
+    recommendation = UpdateRecommendation(
+        status="update_available",
+        message="Update available: GitHub main is 2 commits ahead of this checkout.",
+        update_command="git pull --ff-only origin main",
+        repo_url="https://github.com/H-Ali13381/wakeword-forge",
+        local_ref="old-sha",
+        remote_ref="new-sha",
+        remote_ahead_by=2,
+        detail_url="https://github.com/H-Ali13381/wakeword-forge/compare/old...main",
+    )
+
+    dashboard._render_update_notice(fake, recommendation)
+
+    assert fake.warnings == ["Update available: GitHub main is 2 commits ahead of this checkout."]
+    assert fake.codes == [("git pull --ff-only origin main", {"language": "bash"})]
+    assert any("compare/old...main" in caption for caption in fake.captions)
+
+
+def test_update_notice_stays_quiet_when_checkout_is_current():
+    from wakeword_forge.update_check import UpdateRecommendation
+
+    fake = CaptureFakeSt()
+    recommendation = UpdateRecommendation(
+        status="current",
+        message="wakeword-forge is up to date with GitHub main.",
+        update_command="git pull --ff-only origin main",
+        repo_url="https://github.com/H-Ali13381/wakeword-forge",
+    )
+
+    dashboard._render_update_notice(fake, recommendation)
+
+    assert fake.warnings == []
+    assert fake.codes == []
+
+
+def test_update_recommendation_is_cached_in_session_state():
+    from wakeword_forge.update_check import UpdateRecommendation
+
+    fake = CaptureFakeSt()
+    recommendation = UpdateRecommendation(
+        status="current",
+        message="wakeword-forge is up to date with GitHub main.",
+        update_command="git pull --ff-only origin main",
+        repo_url="https://github.com/H-Ali13381/wakeword-forge",
+    )
+    calls = 0
+
+    def checker():
+        nonlocal calls
+        calls += 1
+        return recommendation
+
+    assert dashboard._cached_update_recommendation(fake, checker) is recommendation
+    assert dashboard._cached_update_recommendation(fake, checker) is recommendation
+    assert calls == 1
 
 
 def test_capture_step_prompts_multiple_phrases_in_rotation(tmp_path):

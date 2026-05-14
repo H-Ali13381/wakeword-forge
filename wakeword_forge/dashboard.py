@@ -25,6 +25,7 @@ from wakeword_forge.project import (
     reset_project,
     save_config,
 )
+from wakeword_forge.update_check import UpdateRecommendation, check_for_updates
 
 DEFAULT_PROJECT_DIR = Path.home() / "wakeword_forge_project"
 
@@ -248,6 +249,7 @@ def _run_blocking_action(label: str, action: Callable[[], object]) -> None:
 DASHBOARD_STEP_KEY = "wakeword_forge_dashboard_step"
 LAST_CAPTURED_TAKE_KEY = "wakeword_forge_last_captured_take"
 RESET_MESSAGE_KEY = "wakeword_forge_reset_message"
+UPDATE_CHECK_STATE_KEY = "wakeword_forge_update_check"
 WIZARD_STEPS = ("intro", "workspace", "recording", "augmentation", "capture", "review", "train", "done")
 WIZARD_STEP_LABELS = {
     "intro": "Start",
@@ -259,6 +261,30 @@ WIZARD_STEP_LABELS = {
     "train": "6. Train and test",
     "done": "7. Accept model",
 }
+
+
+def _cached_update_recommendation(
+    st,
+    checker: Callable[[], UpdateRecommendation] = check_for_updates,
+) -> UpdateRecommendation:
+    cached = st.session_state.get(UPDATE_CHECK_STATE_KEY)
+    if isinstance(cached, UpdateRecommendation):
+        return cached
+    recommendation = checker()
+    st.session_state[UPDATE_CHECK_STATE_KEY] = recommendation
+    return recommendation
+
+
+def _render_update_notice(st, recommendation: UpdateRecommendation | None = None) -> None:
+    recommendation = recommendation or _cached_update_recommendation(st)
+    if not recommendation.needs_update:
+        return
+
+    st.warning(recommendation.message)
+    st.caption("Update before starting a new training run if you want the latest fixes and workflow changes.")
+    st.code(recommendation.update_command, language="bash")
+    if recommendation.detail_url:
+        st.caption(f"Compare: {recommendation.detail_url}")
 
 
 def _set_wizard_step(st, step: str) -> None:
@@ -992,6 +1018,7 @@ def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
     reset_message = st.session_state.pop(RESET_MESSAGE_KEY, None)
     if reset_message:
         st.success(reset_message)
+    _render_update_notice(st)
     ensure_project_dirs(config)
     status = inspect_project(config)
     current_step = _current_wizard_step(st, status)
