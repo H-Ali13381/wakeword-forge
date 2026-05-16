@@ -50,6 +50,7 @@ def ensure_project_dirs(config: ForgeConfig) -> None:
         config.synthetic_path,
         config.partials_path,
         config.confusables_path,
+        config.cloned_review_path,
         config.output_path,
         config.cache_path,
     ):

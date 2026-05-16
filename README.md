@@ -44,6 +44,9 @@ make audit DIR=~/wakeword_forge_project
 make train DIR=~/wakeword_forge_project
 make quality-check DIR=~/wakeword_forge_project
 make accept-model DIR=~/wakeword_forge_project
+make qwentts-build
+make qwentts-voice-clone-one DIR=~/wakeword_forge_project SOURCE_MANIFEST=~/wakeword_forge_project/voice_clone_sources.jsonl
+make review-cloned-samples DIR=~/wakeword_forge_project
 make mic-test DIR=~/wakeword_forge_project
 ```
 
@@ -57,6 +60,8 @@ wakeword-forge audit-generated --dir ~/wakeword_forge_project
 wakeword-forge train --dir ~/wakeword_forge_project
 wakeword-forge quality-check --dir ~/wakeword_forge_project
 wakeword-forge accept-model --dir ~/wakeword_forge_project
+wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl
+wakeword-forge review-cloned-samples --dir ~/wakeword_forge_project
 wakeword-forge test ~/wakeword_forge_project/output/wakeword.onnx
 ```
 
@@ -72,6 +77,38 @@ wakeword-forge test ~/wakeword_forge_project/output/wakeword.onnx
 7. Train                          (compact DS-CNN backend)
 8. Quality check                  (wake hits, near misses, silence/background)
 9. Accept                         (mark wakeword.onnx as final for runtime use)
+```
+
+## QwenTTS voice-cloned sample sourcing
+
+wakeword-forge can optionally generate speaker-diverse wake-phrase clips with a Dockerized QwenTTS runner. This flow is intentionally one sample at a time:
+
+1. download or locate one source-audio file from an open dataset, local file, or explicitly opted-in YouTube row
+2. transcribe the original audio with Whisper
+3. select one clean single-speaker reference snippet
+4. run one QwenTTS custom-voice job in Docker
+5. transcribe the generated wakeword clip
+6. validate audio energy, duration, and fuzzy wake-phrase transcript match
+7. stage the clip under `samples/cloned_review/`
+8. require a human to label it `positive`, `negative`, or `unusable`
+9. move positives/negatives into the training pool and delete unusable clips
+10. rerun `review-samples`, `audit-generated`, and `train` when ready
+
+Responsible-use guardrails are part of the workflow. Only use voices and source audio when you have consent, compatible license rights, or a defensible fair use basis. YouTube source rows are disabled unless you pass `--allow-youtube`, and source metadata is preserved in sidecar JSON files for review and model-card provenance.
+
+Example source manifest at `~/wakeword_forge_project/voice_clone_sources.jsonl`:
+
+```jsonl
+{"path":"/data/common_voice/en/clips/example.mp3","speaker_id":"cv-speaker-1","source_type":"open_dataset","dataset_id":"common_voice_en","license":"verify-version-terms","usage_policy":"research_or_license_compatible_use_only"}
+{"youtube_url":"https://youtu.be/example","speaker_id":"creator-owned-or-cleared","source_type":"youtube","license":"source-rights-required","usage_policy":"personal_use_only_unless_rights_are_cleared"}
+```
+
+```bash
+make qwentts-build
+pip install -e ".[tts,ui,voice]"
+wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl
+wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl --allow-youtube
+wakeword-forge review-cloned-samples --dir ~/wakeword_forge_project --sample 1 --decision positive
 ```
 
 ## Output

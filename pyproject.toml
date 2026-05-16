@@ -30,6 +30,10 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
 ]
+voice = [
+    "openai-whisper>=20231117",
+    "yt-dlp>=2024.4",
+]
 
 [project.scripts]
 wakeword-forge = "wakeword_forge.cli:app"

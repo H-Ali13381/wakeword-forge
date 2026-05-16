@@ -24,7 +24,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from .config import MIN_NEGATIVES, MIN_POSITIVES
-from .project import count_wavs, inspect_project, load_or_create_config, save_config
+from .project import count_wavs, ensure_project_dirs, inspect_project, load_or_create_config, save_config
 
 app = typer.Typer(
     name="wakeword-forge",
@@ -431,6 +431,147 @@ def audit_generated(
         return
     if not _approve_generated_interactively(config, limit=limit):
         raise typer.Exit(1)
+
+
+# ── QwenTTS voice cloning ─────────────────────────────────────────────────────
+
+@app.command(
+    "voice-clone-one",
+    help="Generate one sample at a time with responsible Dockerized QwenTTS voice cloning.",
+)
+def voice_clone_one(
+    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    source_manifest: Optional[Path] = typer.Option(
+        None,
+        "--source-manifest",
+        help="JSONL source-audio manifest. Defaults to <project>/voice_clone_sources.jsonl.",
+    ),
+    phrase: Optional[str] = typer.Option(None, "--phrase", help="Wake phrase to synthesize; defaults to project config."),
+    allow_youtube: bool = typer.Option(
+        False,
+        "--allow-youtube",
+        help="Opt in to YouTube source rows only when rights/consent/fair-use basis permits it.",
+    ),
+    image: str = typer.Option("wakeword-forge-qwentts:latest", "--image", help="Docker image for QwenTTS."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the one-sample plan without running Docker."),
+) -> None:
+    """Generate one responsible QwenTTS voice-cloned sample and stage it for human review.
+
+    The host downloads/transcribes/selects one source clip, then runs one Dockerized
+    QwenTTS job. Use source audio only with consent, license rights, or a defensible
+    fair use basis; YouTube is opt-in and provenance is preserved.
+    """
+
+    from .voice_clone import generate_one_voice_clone_sample
+
+    config = load_or_create_config(project_dir)
+    ensure_project_dirs(config)
+    manifest = source_manifest or (config.project_path / "voice_clone_sources.jsonl")
+    console.print(Panel.fit(
+        "[bold cyan]Responsible voice cloning[/bold cyan]\n"
+        "Use only voices/source audio you have permission, rights, or a defensible fair use basis to process.\n"
+        "Generated clips are staged for human positive/negative/unusable review before training.",
+        border_style="cyan",
+    ))
+    if not manifest.exists():
+        console.print(f"[red]Source manifest not found:[/red] {manifest}")
+        console.print(
+            "[dim]Create a JSONL manifest with path/url/youtube_url, speaker_id, license, "
+            "usage_policy, and optional whisper_result fields, or pass --source-manifest.[/dim]"
+        )
+        raise typer.Exit(1)
+    if dry_run:
+        console.print("[yellow]Dry run only; no Docker job executed.[/yellow]")
+        console.print(f"Manifest: {manifest}")
+        console.print(f"Docker image: {image}")
+        console.print("One sample will be cloned, validated with STT/fuzzy wake-phrase matching, then staged.")
+        return
+    try:
+        result = generate_one_voice_clone_sample(
+            config,
+            source_manifest=manifest,
+            allow_youtube=allow_youtube,
+            phrase=phrase,
+            image=image,
+        )
+    except Exception as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    save_config(config)
+    console.print(f"[green]Staged cloned sample:[/green] {result.staged_item.audio_path}")
+    console.print(f"Suggested label: [bold]{result.validation.suggested_label}[/bold]")
+    if result.validation.reasons:
+        console.print("[yellow]Validation notes:[/yellow] " + "; ".join(result.validation.reasons))
+    console.print("Run `wakeword-forge review-cloned-samples --dir ...` before training.")
+
+
+@app.command("review-cloned-samples")
+def review_cloned_samples(
+    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    sample: Optional[str] = typer.Option(None, "--sample", help="Pending sample index or path."),
+    decision: Optional[str] = typer.Option(
+        None,
+        "--decision",
+        help="Human label for the pending clone: positive, negative, or unusable.",
+    ),
+) -> None:
+    """Move pending voice-cloned clips to positives/negatives, or delete unusable clips."""
+
+    from .voice_clone import apply_cloned_sample_decision, list_cloned_review_items
+
+    config = load_or_create_config(project_dir)
+    ensure_project_dirs(config)
+    items = list_cloned_review_items(config)
+    if not items:
+        console.print("[dim]No pending cloned samples.[/dim]")
+        return
+
+    table = Table(title="Pending cloned samples", show_header=True)
+    table.add_column("#", justify="right", style="bold cyan")
+    table.add_column("File")
+    table.add_column("Suggested")
+    table.add_column("Transcript")
+    for idx, item in enumerate(items, start=1):
+        validation = item.metadata.get("validation", {}) if isinstance(item.metadata, dict) else {}
+        table.add_row(
+            str(idx),
+            _rel(item.audio_path, config.project_path),
+            str(item.metadata.get("suggested_label", "")),
+            str(validation.get("transcript", ""))[:80],
+        )
+    console.print(table)
+
+    chosen_sample = sample
+    chosen_decision = decision
+    if chosen_sample is None:
+        chosen_sample = Prompt.ask("Sample number/path to label", default="1")
+    if chosen_decision is None:
+        chosen_decision = Prompt.ask("Decision", choices=["positive", "negative", "unusable"], default="positive")
+    chosen_decision = chosen_decision.lower().strip()
+    if chosen_decision not in {"positive", "negative", "unusable"}:
+        console.print("[red]Decision must be positive, negative, or unusable.[/red]")
+        raise typer.Exit(1)
+
+    target: Path | str
+    if chosen_sample.isdigit():
+        index = int(chosen_sample)
+        if index < 1 or index > len(items):
+            console.print(f"[red]Sample index out of range: {index}[/red]")
+            raise typer.Exit(1)
+        target = items[index - 1].audio_path
+    else:
+        target = chosen_sample
+    try:
+        moved = apply_cloned_sample_decision(config, target, chosen_decision)  # type: ignore[arg-type]
+    except Exception as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    save_config(config)
+    if moved is None:
+        console.print("[yellow]Deleted unusable cloned sample.[/yellow]")
+    else:
+        console.print(f"[green]Moved cloned sample to training pool:[/green] {moved}")
+        console.print("[dim]Sample review approval was invalidated; rerun review-samples before training.[/dim]")
 
 
 # ── quality-check ─────────────────────────────────────────────────────────────

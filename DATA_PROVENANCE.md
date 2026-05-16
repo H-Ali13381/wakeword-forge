@@ -11,6 +11,7 @@ wakeword-forge is designed for auditable local wake-word training. Voice recordi
 - `samples/synthetic/`: optional TTS-generated positive examples.
 - `samples/partials/`: optional partial-phrase hard negatives for multi-word phrases.
 - `samples/confusables/`: optional confusable hard negatives.
+- `samples/cloned_review/`: optional QwenTTS voice-cloned clips waiting for human positive/negative/unusable review.
 - `output/wakeword.onnx`: exported detector.
 - `output/config.json`: preprocessing, threshold, and runtime metadata.
 
@@ -24,6 +25,16 @@ Do not publish or contribute audio unless:
 - The license allows the intended use and redistribution.
 - Generated samples are allowed by the TTS backend, model, and voice-asset terms.
 - The artifact clearly states whether it contains real user speech, synthetic audio, public dataset audio, or a mixture.
+
+## Voice cloning and source-audio policy
+
+Voice cloning is more sensitive than ordinary TTS. Treat every source row as provenance data, not just an input file:
+
+- Prefer open datasets whose license and consent model allow your intended use.
+- Keep YouTube disabled by default. Only pass `--allow-youtube` for personal experiments, creator-owned material, rights-cleared clips, or a fair use scenario you have evaluated yourself.
+- Store `speaker_id`, `source_type`, `dataset_id`, `license`, `usage_policy`, and source URLs in the source manifest and generated sidecar metadata.
+- Never publish voice-cloned audio or models trained on cloned voices unless the consent, license, and redistribution basis are clear.
+- Human review is mandatory: staged cloned clips must be labeled `positive`, `negative`, or `unusable`; unusable clips should be deleted.
 
 ## Recommended provenance manifest
 

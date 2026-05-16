@@ -1,0 +1,21 @@
+services:
+  qwentts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${QWENTTS_IMAGE:-wakeword-forge-qwentts:latest}
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ${WAKEWORD_FORGE_PROJECT:-${HOME}/wakeword_forge_project}:/project:rw
+      - ${WAKEWORD_FORGE_JOB_DIR:-${PWD}/jobs}:/jobs:ro
+      - ${WAKEWORD_FORGE_OUTPUT_DIR:-${HOME}/wakeword_forge_project/.cache/voice_clone/generated}:/outputs:rw
+      - qwentts-hf-cache:/root/.cache/huggingface
+    gpus: all
+    shm_size: 4g
+    command: ["python3", "/workspace/qwentts_clone_one.py", "--help"]
+
+volumes:
+  qwentts-hf-cache:

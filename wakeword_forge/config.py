@@ -153,6 +153,11 @@ class ForgeConfig:
         return self.samples_path / "confusables"
 
     @property
+    def cloned_review_path(self) -> Path:
+        """Pending QwenTTS voice-cloned clips awaiting human positive/negative/unusable review."""
+        return self.samples_path / "cloned_review"
+
+    @property
     def confusables_cache(self) -> Path:
         """Cached list of confusable phrases (editable plain text)."""
         return self.project_path / "confusable_variants.txt"
