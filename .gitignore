@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+.venv/
+venv/
+.uv/
+
+# Legacy archive and project data (large/local, never commit)
+legacy/
+projects/
+wakeword_projects/
+**/samples/
+**/output/
+**/.cache/
+**/mobile_review_packs/
+**/mobile_review_imports/
+**/processing_logs/
+**/forge_config.json
+*.onnx
+*.pt
+*.wav
+*.mp3
+
+# Dev artifacts (benchmark runs and debug scripts)
+benchmark_results/
+check_db.py
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

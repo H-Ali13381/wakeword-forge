@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use wakeword-forge in research, demos, or integrations, please cite the project."
+title: "wakeword-forge: Local-First Personal Wake Word Training"
+type: software
+authors:
+  - name: "Hasan"
+version: "0.1.0"
+license: "Apache-2.0"
+abstract: >-
+  wakeword-forge is a local-first tool for training private, personalized
+  wake-word detectors from user-collected speech, synthetic augmentation, and
+  ONNX deployment artifacts.
+keywords:
+  - wake word
+  - keyword spotting
+  - local-first AI
+  - ONNX
+  - speech

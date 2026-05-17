@@ -1,0 +1,9 @@
+wakeword-forge
+Copyright 2026 Hasan
+
+wakeword-forge is licensed under the Apache License, Version 2.0.
+
+This project can train models using third-party software, model backends, TTS engines,
+and optional datasets. Those third-party components retain their own licenses and
+terms. See THIRD_PARTY_NOTICES.md and DATA_PROVENANCE.md before publishing packaged
+models, generated audio, or benchmark artifacts.
