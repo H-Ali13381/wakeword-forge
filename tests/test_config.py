@@ -18,7 +18,7 @@ def test_save_load_roundtrip(tmp_path):
     cfg.save(cfg_file)
     loaded = ForgeConfig.load(cfg_file)
     assert loaded.wake_phrase == "Hey Nova"
-    assert loaded.backend == "dscnn"
+    assert loaded.backend == "wavlm-repcnn"
     assert loaded.sample_source_dir == str(sample_source)
 
 

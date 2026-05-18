@@ -78,7 +78,7 @@ wakeword-forge test ~/wakeword_forge_project/output/wakeword.onnx
 4. Add augmentation               (TTS variants, hard negatives, noise)
 5. Review samples                 (play/delete/re-record bad takes)
 6. Audit generated clips          (spot-check TTS positives and hard negatives)
-7. Train                          (compact DS-CNN backend)
+7. Train                          (WavLM teacher → RepCNN student backend)
 8. Quality check                  (wake hits, near misses, silence/background)
 9. Accept                         (mark wakeword.onnx as final for runtime use)
 ```
@@ -107,7 +107,7 @@ wakeword-forge import-negatives --dir ~/wakeword_forge_project --source-dir ~/pa
 
 ## Training-time acoustic augmentation
 
-wakeword-forge applies training-time acoustic augmentation after sample review and before DS-CNN optimization. This is separate from TTS sample generation: it changes the waveform or mel features seen by the trainer without writing extra reviewed files.
+wakeword-forge applies training-time acoustic augmentation after sample review and before WavLM→RepCNN optimization. This is separate from TTS sample generation: it changes the waveform or mel features seen by the trainer without writing extra reviewed files.
 
 Defaults:
 
@@ -192,16 +192,15 @@ After training you get:
 
 ## Architecture
 
-The public v0.1 backend is a compact DS-CNN-style keyword-spotting model:
+The training backend uses WavLM as a training-only teacher and distills it into a compact RepCNN runtime model:
 
 - Input: raw mono waveform at 16 kHz.
-- Frontend: normalized log-mel frames.
-- Model: depthwise-separable 1D convolutions over mel frames.
-- Runtime artifact: a single ONNX detector graph.
+- Teacher: WavLM waveform classifier trained on reviewed positives, background negatives, confusables, and partial-phrase hard negatives.
+- Student: RepCNN trained on log-mel frames with hard-label BCE plus WavLM logit/feature distillation.
+- Runtime artifact: a single ONNX detector graph containing only the RepCNN student and mel frontend.
 
-Heavy research backends are intentionally out of scope for the first public
-release. The goal is a small, inspectable training path that is easy to run,
-test, and integrate.
+The WavLM teacher is not part of the deployed graph; it only supplies a stronger
+training signal before export.
 
 ## Privacy and data provenance
 

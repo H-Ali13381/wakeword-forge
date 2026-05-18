@@ -30,6 +30,9 @@ wakeword_projects/
 benchmark_results/
 check_db.py
 
+# Worktrees
+.worktrees/
+
 # Editor
 .idea/
 .vscode/

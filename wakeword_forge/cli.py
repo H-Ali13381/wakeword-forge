@@ -811,7 +811,12 @@ def accept_model_command(
 @app.command()
 def train(
     project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
-    backend: str = typer.Option("dscnn", "--backend", "-b", help="Supported backend: dscnn"),
+    backend: str = typer.Option(
+        "wavlm-repcnn",
+        "--backend",
+        "-b",
+        help="Supported backend: wavlm-repcnn (WavLM teacher -> RepCNN student)",
+    ),
     force: bool = typer.Option(False, "--force", help="Bypass human review gates."),
     augmentation: Optional[bool] = typer.Option(
         None,
@@ -977,7 +982,7 @@ def info(
     t.add_row("Model accepted", "yes" if status.model_accepted else "[dim]no[/dim]")
     t.add_row("Backend",        config.backend)
     t.add_row("TTS engine",     config.tts_engine)
-    t.add_row("Trained EER",    f"{config.trained_eer:.4f}" if config.trained_eer else "[dim]not trained[/dim]")
+    t.add_row("Trained EER",    f"{config.trained_eer:.4f}" if config.trained_eer is not None else "[dim]not trained[/dim]")
     t.add_row("Threshold",      f"{config.trained_threshold:.4f}" if config.trained_threshold != 0.5 else "[dim]default[/dim]")
 
     console.print(t)

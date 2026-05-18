@@ -1,6 +1,6 @@
 # wakeword-forge architecture
 
-Readable public v0.1 overview: dashboard/CLI guided collection, fingerprinted human review gates, local sample folders, DS-CNN training, ONNX export, model acceptance, and release hygiene.
+Readable public overview: dashboard/CLI guided collection, fingerprinted human review gates, local sample folders, WavLM→RepCNN training, ONNX export, model acceptance, and release hygiene.
 
 ```mermaid
 %%{init: {"theme":"base", "flowchart":{"curve":"basis","nodeSpacing":55,"rankSpacing":80,"padding":20,"htmlLabels":true}, "themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#111827","primaryBorderColor":"#111827","lineColor":"#374151","fontFamily":"Arial, sans-serif","fontSize":"22px","clusterBkg":"#f8fafc","clusterBorder":"#cbd5e1","edgeLabelBackground":"#ffffff"}}}%%
@@ -10,7 +10,7 @@ flowchart LR
     UI["Dashboard or CLI<br/><b>choose phrase</b><br/>record • synth • review"]
     DATA["Local project data<br/><b>forge_config.json + samples/</b><br/>positives • negatives • generated clips"]
     REVIEW["Human review gates<br/><b>review-samples + audit-generated</b><br/>fingerprinted approvals"]
-    TRAIN["Train/export<br/><b>run_training → DSCNNTrainer</b><br/>log-mel DS-CNN • ONNX"]
+    TRAIN["Train/export<br/><b>run_training → WavLMRepCNNTrainer</b><br/>WavLM teacher → RepCNN ONNX"]
     QC["Live quality gate<br/><b>quality-check</b><br/>hits • false triggers • score range"]
     ACCEPT["Acceptance gate<br/><b>accept-model</b><br/>approval bound to model hash"]
     OUT["Runtime artifacts<br/><b>wakeword.onnx</b><br/>config.json • threshold • metadata"]

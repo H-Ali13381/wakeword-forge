@@ -105,7 +105,7 @@ audit: install
 
 ## Training only (uses existing samples in DIR).
 train: install
-	$(FORGE) train --dir "$(DIR)" --backend dscnn $(AUGMENTATION) --augmentation-preset "$(AUGMENTATION_PRESET)" --regular-negative-preset "$(REGULAR_NEGATIVE_PRESET)" $(SPECTROGRAM_AUGMENTATION) $(if $(AUGMENTATION_NOISE_DIR),--augmentation-noise-dir "$(AUGMENTATION_NOISE_DIR)") $(if $(AUGMENTATION_IR_DIR),--augmentation-ir-dir "$(AUGMENTATION_IR_DIR)") $(if $(AUGMENTATION_SHORT_NOISE_DIR),--augmentation-short-noise-dir "$(AUGMENTATION_SHORT_NOISE_DIR)") $(if $(AUGMENTATION_TRUCK_NOISE_DIR),--augmentation-truck-noise-dir "$(AUGMENTATION_TRUCK_NOISE_DIR)")
+	$(FORGE) train --dir "$(DIR)" --backend wavlm-repcnn $(AUGMENTATION) --augmentation-preset "$(AUGMENTATION_PRESET)" --regular-negative-preset "$(REGULAR_NEGATIVE_PRESET)" $(SPECTROGRAM_AUGMENTATION) $(if $(AUGMENTATION_NOISE_DIR),--augmentation-noise-dir "$(AUGMENTATION_NOISE_DIR)") $(if $(AUGMENTATION_IR_DIR),--augmentation-ir-dir "$(AUGMENTATION_IR_DIR)") $(if $(AUGMENTATION_SHORT_NOISE_DIR),--augmentation-short-noise-dir "$(AUGMENTATION_SHORT_NOISE_DIR)") $(if $(AUGMENTATION_TRUCK_NOISE_DIR),--augmentation-truck-noise-dir "$(AUGMENTATION_TRUCK_NOISE_DIR)")
 
 ## Guided live quality checkpoint for a trained model.
 quality-check: install

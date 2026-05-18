@@ -16,13 +16,15 @@ Runtime dependencies declared in `pyproject.toml`:
 - Typer: CLI. Upstream: https://typer.tiangolo.com/
 - Streamlit: optional dashboard UI. Upstream: https://streamlit.io/
 - scikit-learn: metrics. Upstream: https://scikit-learn.org/
+- Transformers: WavLM teacher loading/training. Upstream: https://huggingface.co/docs/transformers/
 - Kokoro ONNX: optional TTS augmentation backend. Upstream: https://github.com/thewh1teagle/kokoro-onnx
 
 For any release that vendors dependencies, publishes prebuilt model artifacts, or redistributes generated datasets, verify exact package versions and license metadata from the artifacts actually shipped or installed.
 
 ## Model backends
 
-- DS-CNN backend: implemented in this repository for compact local wake-word detection.
+- WavLM teacher: loaded via Transformers for training-time distillation into RepCNN. Check the selected Hugging Face model card/license before publishing derived artifacts.
+- RepCNN student backend: implemented in this repository for compact local wake-word detection and ONNX export.
 - Kokoro TTS assets: optional generated-speech backend. Verify code, model, voice assets, and generated-output terms separately.
 
 ## Optional datasets

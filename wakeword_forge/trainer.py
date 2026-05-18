@@ -1,9 +1,8 @@
 """
-trainer.py — High-level DS-CNN training orchestrator.
+trainer.py — High-level WavLM -> RepCNN training orchestrator.
 
-The public v0.1 flow intentionally supports one backend: ``dscnn``. Keeping the
-training path narrow makes the CLI easier to understand and keeps heavyweight
-research backends out of the default open-source package.
+The public training flow uses WavLM as a training-only teacher and exports a
+compact RepCNN student as the runtime ONNX detector.
 
 Data collected:
   - positives: user recordings + synthetic TTS variants
@@ -25,7 +24,7 @@ from .project import background_negative_target, negative_coverage_errors, parti
 
 console = Console()
 
-SUPPORTED_BACKENDS = {"dscnn"}
+SUPPORTED_BACKENDS = {"wavlm-repcnn"}
 
 
 def validate_backend(backend: str) -> str:
@@ -96,11 +95,11 @@ def run_training(config: ForgeConfig) -> Path:
 
     waveform_augmentor, spectrogram_augmentor = build_training_augmentors(config)
 
-    if backend == "dscnn":
-        from .models.dscnn_trainer import DSCNNTrainer
+    if backend == "wavlm-repcnn":
+        from .models.wavlm_repcnn import WavLMRepCNNTrainer
         from .review import reset_trained_output_approval, training_data_fingerprint
 
-        trainer = DSCNNTrainer(config)
+        trainer = WavLMRepCNNTrainer(config)
         trainer.train(
             all_pos,
             all_neg,
@@ -109,8 +108,8 @@ def run_training(config: ForgeConfig) -> Path:
             spec_augmentor=spectrogram_augmentor,
         )
         onnx_path = trainer.export_onnx()
-        config.trained_threshold = trainer._threshold
-        config.trained_eer = trainer._eer
+        config.trained_threshold = trainer.threshold
+        config.trained_eer = trainer.eer
         config.trained_sample_fingerprint = training_data_fingerprint(config)
         reset_trained_output_approval(config)
     else:  # pragma: no cover - validate_backend guards this branch.

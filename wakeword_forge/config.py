@@ -82,8 +82,21 @@ class ForgeConfig:
     tts_engine: str = "kokoro"     # "kokoro" | "piper" | "qwentts" | "none"
 
     # Training
-    backend: str = "dscnn"            # public v0.1 backend
+    backend: str = "wavlm-repcnn"
     max_epochs: int = 40
+    wavlm_teacher_model: str = "microsoft/wavlm-base"
+    wavlm_teacher_epochs: int = 4
+    wavlm_unfrozen_layers: int = 0
+    wavlm_batch_size: int = 1
+    wavlm_inference_batch_size: int = 1
+    wavlm_gradient_checkpointing: bool = True
+    wavlm_learning_rate: float = 2e-5
+    repcnn_batch_size: int = 32
+    repcnn_learning_rate: float = 1e-3
+    repcnn_merge_before_export: bool = True
+    distill_temperature: float = 2.0
+    distill_logit_weight: float = 0.5
+    distill_feature_weight: float = 0.25
 
     # Training-time acoustic augmentation
     training_augmentation_enabled: bool = True
