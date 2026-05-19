@@ -4,18 +4,20 @@ Private custom wake words for local agents.
 
 wakeword-forge trains a personal wake-word detector from a small number of voice samples, keeps recordings local by default, and exports an ONNX model that local agents or voice apps can embed.
 
+This repository is intended to be run from a local source checkout. It is not a published PyPI package, so do not install it with `pip install wakeword-forge`. Use the Makefile targets below; they create a repo-local `.venv`, install the checkout in editable mode, and run the app from that environment.
+
 ## Quickstart: dashboard-first
 
 ```bash
-pip install "wakeword-forge[ui,tts]"
-wakeword-forge dashboard --dir ~/wakeword_forge_project
+cd /path/to/wakeword-forge
+make start DIR=~/wakeword_forge_project
 ```
 
-Development checkout:
+For development checks:
 
 ```bash
 make install-dev
-make start DIR=~/wakeword_forge_project
+make check
 ```
 
 `make start` opens the Streamlit dashboard. The dashboard guides the full flow:
@@ -52,21 +54,21 @@ make review-cloned-samples DIR=~/wakeword_forge_project
 make mic-test DIR=~/wakeword_forge_project
 ```
 
-Direct CLI equivalents:
+Direct CLI equivalents are available after `make install`, but they are local to the checkout. Run them from the repository root via `.venv/bin/wakeword-forge` rather than assuming a globally installed package:
 
 ```bash
-wakeword-forge run --dir ~/wakeword_forge_project
-wakeword-forge info --dir ~/wakeword_forge_project
-wakeword-forge synth 'Hey Nova' --out ~/wakeword_forge_project/samples/synthetic --n 300 --engine qwentts
-wakeword-forge import-negatives --dir ~/wakeword_forge_project --manifest ~/external_negatives.jsonl --limit 150 --limit-per-source 25
-wakeword-forge review-samples --dir ~/wakeword_forge_project
-wakeword-forge audit-generated --dir ~/wakeword_forge_project
-wakeword-forge train --dir ~/wakeword_forge_project --augmentation-preset standard --regular-negative-preset light
-wakeword-forge quality-check --dir ~/wakeword_forge_project
-wakeword-forge accept-model --dir ~/wakeword_forge_project
-wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl
-wakeword-forge review-cloned-samples --dir ~/wakeword_forge_project
-wakeword-forge test ~/wakeword_forge_project/output/wakeword.onnx
+.venv/bin/wakeword-forge run --dir ~/wakeword_forge_project
+.venv/bin/wakeword-forge info --dir ~/wakeword_forge_project
+.venv/bin/wakeword-forge synth 'Hey Nova' --out ~/wakeword_forge_project/samples/synthetic --n 300 --engine qwentts
+.venv/bin/wakeword-forge import-negatives --dir ~/wakeword_forge_project --manifest ~/external_negatives.jsonl --limit 150 --limit-per-source 25
+.venv/bin/wakeword-forge review-samples --dir ~/wakeword_forge_project
+.venv/bin/wakeword-forge audit-generated --dir ~/wakeword_forge_project
+.venv/bin/wakeword-forge train --dir ~/wakeword_forge_project --augmentation-preset standard --regular-negative-preset light
+.venv/bin/wakeword-forge quality-check --dir ~/wakeword_forge_project
+.venv/bin/wakeword-forge accept-model --dir ~/wakeword_forge_project
+.venv/bin/wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl
+.venv/bin/wakeword-forge review-cloned-samples --dir ~/wakeword_forge_project
+.venv/bin/wakeword-forge test ~/wakeword_forge_project/output/wakeword.onnx
 ```
 
 ## Pipeline
@@ -100,9 +102,9 @@ Use `--strata speech=50,noise=50,silence=50` to enforce per-category quotas inde
 Examples:
 
 ```bash
-wakeword-forge import-negatives --dir ~/wakeword_forge_project --source-dir ~/speech_or_noise_clips --kind background --limit 150 --limit-per-source 25
-wakeword-forge import-negatives --dir ~/wakeword_forge_project --manifest ~/external_negatives.jsonl --kind background --limit 150 --limit-per-source 25 --max-chunks-per-file 20 --strata speech=50,noise=50,silence=50
-wakeword-forge import-negatives --dir ~/wakeword_forge_project --source-dir ~/partial_phrase_clips --kind partial --limit 100
+make import-negatives DIR=~/wakeword_forge_project NEG_SOURCE_DIR=~/speech_or_noise_clips NEG_KIND=background NEG_LIMIT=150 NEG_LIMIT_PER_SOURCE=25
+make import-negatives DIR=~/wakeword_forge_project NEG_MANIFEST=~/external_negatives.jsonl NEG_KIND=background NEG_LIMIT=150 NEG_LIMIT_PER_SOURCE=25 NEG_MAX_CHUNKS_PER_FILE=20 NEG_STRATA='speech=50,noise=50,silence=50'
+make import-negatives DIR=~/wakeword_forge_project NEG_SOURCE_DIR=~/partial_phrase_clips NEG_KIND=partial NEG_LIMIT=100
 ```
 
 ## Training-time acoustic augmentation
@@ -123,31 +125,24 @@ No extra package install is required for the current training-time augmentation 
 Examples:
 
 ```bash
-wakeword-forge train --dir ~/wakeword_forge_project \
-  --augmentation \
-  --augmentation-preset standard \
-  --regular-negative-preset light \
-  --augmentation-noise-dir ~/noise_wavs \
-  --augmentation-ir-dir ~/room_ir_wavs
-
-wakeword-forge train --dir ~/wakeword_forge_project --no-augmentation
-wakeword-forge train --dir ~/wakeword_forge_project --spectrogram-augmentation
+make train DIR=~/wakeword_forge_project AUGMENTATION_PRESET=standard REGULAR_NEGATIVE_PRESET=light AUGMENTATION_NOISE_DIR=~/noise_wavs AUGMENTATION_IR_DIR=~/room_ir_wavs
+make train DIR=~/wakeword_forge_project AUGMENTATION=--no-augmentation
+make train DIR=~/wakeword_forge_project SPECTROGRAM_AUGMENTATION=--spectrogram-augmentation
 ```
 
 ## Synthetic TTS sources
 
-`wakeword-forge synth` can generate ordinary synthetic wake-phrase samples from three TTS sources:
+`make synth` can generate ordinary synthetic wake-phrase samples from three TTS sources:
 
-- `kokoro` — default lightweight CPU-capable source from `wakeword-forge[tts]`.
+- `kokoro` — default lightweight CPU-capable source installed into the local `.venv` by `make install`.
 - `piper` — fast local Piper voice source, when a Piper voice is installed.
 - `qwentts` — GPU Qwen3-TTS CustomVoice source using 13 mirrored CustomVoice voice designs and a 20-prompt style instruction grid.
 
-QwenTTS baseline synthesis is not voice cloning and does not use external speaker reference audio. The mirrored voice design set includes Ryan, Aiden, Vivian, Serena, Uncle_Fu, Dylan, Eric, Ono_Anna, Sohee, plus cross-language Ryan/Aiden French and Vivian/Serena English accent-diversity entries. Install the optional extra and run it explicitly:
+QwenTTS baseline synthesis is not voice cloning and does not use external speaker reference audio. The mirrored voice design set includes Ryan, Aiden, Vivian, Serena, Uncle_Fu, Dylan, Eric, Ono_Anna, Sohee, plus cross-language Ryan/Aiden French and Vivian/Serena English accent-diversity entries. Run it explicitly through Make; the `ENGINE=qwentts` path installs the local QwenTTS dependencies into `.venv` as needed:
 
 ```bash
-pip install -e ".[tts,ui,qwentts]"
 make synth DIR=~/wakeword_forge_project PHRASE='Hey Nova' N=300 ENGINE=qwentts
-wakeword-forge synth 'Hey Nova' --out ~/wakeword_forge_project/samples/synthetic --n 300 --engine qwentts
+.venv/bin/wakeword-forge synth 'Hey Nova' --out ~/wakeword_forge_project/samples/synthetic --n 300 --engine qwentts
 ```
 
 ## QwenTTS voice-cloned sample sourcing
@@ -176,10 +171,9 @@ Example source manifest at `~/wakeword_forge_project/voice_clone_sources.jsonl`:
 
 ```bash
 make qwentts-build
-pip install -e ".[tts,ui,voice]"
-wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl
-wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl --allow-youtube
-wakeword-forge review-cloned-samples --dir ~/wakeword_forge_project --sample 1 --decision positive
+make qwentts-voice-clone-one DIR=~/wakeword_forge_project SOURCE_MANIFEST=~/wakeword_forge_project/voice_clone_sources.jsonl
+.venv/bin/wakeword-forge voice-clone-one --dir ~/wakeword_forge_project --source-manifest ~/wakeword_forge_project/voice_clone_sources.jsonl --allow-youtube
+.venv/bin/wakeword-forge review-cloned-samples --dir ~/wakeword_forge_project --sample 1 --decision positive
 ```
 
 ## Output
