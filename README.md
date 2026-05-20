@@ -1,5 +1,3 @@
-# wakeword-forge
-
 <p align="center">
   <img src="assets/readme-hero-forge-waveform.png" alt="wakeword-forge logo: audio waveform passing through a forge/anvil into a local wake-word signal" width="720">
 </p>
