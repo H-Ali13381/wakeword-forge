@@ -241,17 +241,17 @@ def test_cli_documents_import_negatives_workflow():
     assert "negative" in result.output.lower()
 
 
-def test_readme_and_makefile_document_negative_ingestion():
-    readme = Path("README.md").read_text(encoding="utf-8")
+def test_documentation_and_makefile_document_negative_ingestion():
+    docs = Path("README.md").read_text(encoding="utf-8") + Path("docs/advanced-usage.md").read_text(encoding="utf-8")
     makefile = Path("Makefile").read_text(encoding="utf-8")
     provenance = Path("DATA_PROVENANCE.md").read_text(encoding="utf-8")
 
-    assert "import-negatives" in readme
-    assert "make import-negatives" in readme
-    assert "manifest" in readme.lower()
-    assert "limit-per-source" in readme
-    assert "--strata" in readme
-    assert "speech=50,noise=50,silence=50" in readme
+    assert "import-negatives" in docs
+    assert "make import-negatives" in docs
+    assert "manifest" in docs.lower()
+    assert "limit-per-source" in docs
+    assert "--strata" in docs
+    assert "speech=50,noise=50,silence=50" in docs
     assert "import-negatives" in makefile
     assert "NEG_STRATA" in makefile
     assert "--strata" in makefile

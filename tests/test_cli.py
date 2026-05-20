@@ -17,3 +17,20 @@ def test_info_displays_zero_eer_as_trained_metric(tmp_path):
     assert result.exit_code == 0
     assert "Trained EER" in result.output
     assert "0.0000" in result.output
+
+
+def test_synth_defaults_to_qwentts_generator(monkeypatch, tmp_path):
+    calls = {}
+
+    def fake_synthesize_positives(*, phrase, out_dir, n, engine):
+        calls.update({"phrase": phrase, "out_dir": out_dir, "n": n, "engine": engine})
+        return []
+
+    import wakeword_forge.synthesizer as synthesizer
+
+    monkeypatch.setattr(synthesizer, "synthesize_positives", fake_synthesize_positives)
+
+    result = CliRunner().invoke(app, ["synth", "Hey Nova", "--out", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert calls == {"phrase": "Hey Nova", "out_dir": tmp_path, "n": 300, "engine": "qwentts"}

@@ -159,11 +159,11 @@ def test_training_augmentation_docs_do_not_advertise_unused_extra():
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text()
     makefile = (root / "Makefile").read_text()
-    readme = (root / "README.md").read_text()
+    docs = (root / "README.md").read_text() + (root / "docs/advanced-usage.md").read_text()
 
     assert "augment = [" not in pyproject
     assert "audiomentations" not in pyproject
     assert "install-augment" not in makefile
-    assert "[tts,ui,augment]" not in readme
+    assert "[tts,ui,augment]" not in docs
     assert "--augmentation-preset" in makefile
-    assert "training-time acoustic augmentation" in readme
+    assert "training-time acoustic augmentation" in docs

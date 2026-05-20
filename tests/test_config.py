@@ -33,6 +33,10 @@ def test_default_record_duration_allows_extra_margin_for_trimming():
     assert ForgeConfig().record_duration == 4.0
 
 
+def test_default_synthetic_generator_recommends_qwentts():
+    assert ForgeConfig().tts_engine == "qwentts"
+
+
 def test_config_phrase_options_dedupe_primary_and_extra_phrases():
     cfg = ForgeConfig(
         wake_phrase="Hey Nova",

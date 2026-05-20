@@ -264,15 +264,15 @@ def test_cli_exposes_voice_clone_commands_with_responsible_use_language():
     assert "unusable" in review_help.output
 
 
-def test_readme_and_makefile_document_qwentts_voice_clone_flow():
-    readme = Path("README.md").read_text(encoding="utf-8")
+def test_documentation_and_makefile_document_qwentts_voice_clone_flow():
+    docs = Path("README.md").read_text(encoding="utf-8") + Path("docs/advanced-usage.md").read_text(encoding="utf-8")
     makefile = Path("Makefile").read_text(encoding="utf-8")
     provenance = Path("DATA_PROVENANCE.md").read_text(encoding="utf-8")
 
-    assert "voice-clone-one" in readme
-    assert "review-cloned-samples" in readme
-    assert "responsible" in readme.lower()
-    assert "fair use" in readme.lower()
+    assert "voice-clone-one" in docs
+    assert "review-cloned-samples" in docs
+    assert "responsible" in docs.lower()
+    assert "fair use" in docs.lower()
     assert "qwentts-voice-clone-one" in makefile
     assert "review-cloned-samples" in makefile
     assert "YouTube" in provenance

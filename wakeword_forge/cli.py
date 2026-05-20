@@ -421,7 +421,7 @@ def synth(
     phrase: str = typer.Argument(..., help="Wake phrase to synthesize"),
     out: Path = typer.Option(..., "--out", "-o"),
     n: int = typer.Option(300, "--n"),
-    engine: str = typer.Option("kokoro", "--engine", "-e", help="TTS engine: kokoro, piper, qwentts, or none"),
+    engine: str = typer.Option("qwentts", "--engine", "-e", help="TTS engine: qwentts (recommended), kokoro, piper, or none"),
 ) -> None:
     """Generate synthetic positive samples using TTS."""
     from .synthesizer import synthesize_positives

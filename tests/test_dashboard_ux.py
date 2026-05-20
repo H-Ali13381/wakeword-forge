@@ -279,7 +279,7 @@ def test_augmentation_step_offers_qwentts_engine(tmp_path):
 
     updated = dashboard._render_augmentation_step(fake, cfg)
 
-    assert fake.select_options["TTS engine"] == ["kokoro", "piper", "qwentts", "none"]
+    assert fake.select_options["TTS engine"] == ["qwentts", "kokoro", "piper", "none"]
     assert fake.select_options["Training augmentation preset"] == ["standard", "light"]
     assert fake.select_options["Background negative augmentation"] == ["light", "standard", "none"]
     assert fake.text_labels == [
@@ -863,6 +863,7 @@ def test_sidebar_progress_tracks_workflow_without_settings_inputs(tmp_path):
 def test_makefile_defaults_to_dashboard_with_cli_fallback():
     makefile = Path("Makefile").read_text()
 
+    assert "ENGINE ?= qwentts" in makefile
     assert "dashboard" in makefile
     assert "cli-run" in makefile
     assert "start: dashboard" in makefile

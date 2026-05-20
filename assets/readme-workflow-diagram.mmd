@@ -1,0 +1,19 @@
+%%{init: {"theme":"base", "flowchart":{"curve":"basis","nodeSpacing":38,"rankSpacing":46,"padding":18,"htmlLabels":true}, "themeVariables":{"background":"#ffffff","primaryColor":"#f8fafc","primaryTextColor":"#111827","primaryBorderColor":"#334155","lineColor":"#475569","fontFamily":"Arial, sans-serif","fontSize":"18px","edgeLabelBackground":"#ffffff"}}}%%
+flowchart TB
+    A["Choose wake phrase"] --> B["Record or import positives"]
+    B --> C["Add negative coverage<br/>background speech • silence • partials • near misses"]
+    C --> D["Review samples<br/>fingerprinted approvals"]
+    D --> E["Train detector<br/>WavLM teacher → RepCNN student"]
+    E --> F["Export ONNX<br/>wakeword.onnx + config"]
+    F --> G["Live quality check"]
+    G --> H{"Accept model?"}
+    H -- yes --> I["Use in local voice app"]
+    H -- no --> C
+
+    classDef step fill:#f8fafc,stroke:#334155,color:#111827,stroke-width:2px
+    classDef gate fill:#fef3c7,stroke:#d97706,color:#111827,stroke-width:2px
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#111827,stroke-width:2px
+
+    class A,B,C,D,E,F,G step
+    class H gate
+    class I output

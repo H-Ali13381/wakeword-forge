@@ -2,9 +2,9 @@
 synthesizer.py — Generate synthetic positive examples using TTS.
 
 Supports:
-  - kokoro-onnx (default, Apache-2.0, CPU-capable, ~82M params)
+  - qwentts (recommended GPU Qwen3-TTS CustomVoice baseline speakers; optional extra)
+  - kokoro-onnx (CPU-capable fallback, Apache-2.0, ~82M params)
   - piper (CPU, very fast, lower quality)
-  - qwentts (GPU Qwen3-TTS CustomVoice baseline speakers; optional extra)
   - none  (skip synthesis, use recorded samples only)
 
 The synthesizer generates N variants of the wake-phrase with randomized:
@@ -503,7 +503,7 @@ def synthesize_positives(
     phrase: str,
     out_dir: Path,
     n: int = 300,
-    engine: str = "kokoro",
+    engine: str = "qwentts",
     seed: int = 42,
 ) -> list[Path]:
     """
@@ -579,7 +579,7 @@ def synthesize_positive_phrases(
     phrases: Sequence[str],
     out_dir: Path,
     n: int = 300,
-    engine: str = "kokoro",
+    engine: str = "qwentts",
     seed: int = 42,
 ) -> list[Path]:
     """Generate synthetic positives distributed across one or more trigger phrases."""
@@ -615,7 +615,7 @@ def synthesize_confusable_negatives(
     out_dir: Path,
     cache_file: Path,
     n_variants: int = 50,
-    engine: str = "kokoro",
+    engine: str = "qwentts",
     seed: int = 44,
 ) -> list[Path]:
     """
@@ -685,7 +685,7 @@ def synthesize_partial_negatives(
     phrase: str,
     out_dir: Path,
     n: int = 100,
-    engine: str = "kokoro",
+    engine: str = "qwentts",
     seed: int = 43,
 ) -> list[Path]:
     """

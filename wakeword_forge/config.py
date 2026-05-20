@@ -79,7 +79,7 @@ class ForgeConfig:
     # Synthesis
     use_tts_augmentation: bool = True
     tts_variants: int = 300        # synthetic positive samples to generate
-    tts_engine: str = "kokoro"     # "kokoro" | "piper" | "qwentts" | "none"
+    tts_engine: str = "qwentts"    # recommended; alternatives: "kokoro" | "piper" | "none"
 
     # Training
     backend: str = "wavlm-repcnn"

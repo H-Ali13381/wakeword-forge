@@ -4,7 +4,7 @@
 DIR    ?= $(HOME)/wakeword_forge_project
 PHRASE ?= Hey Nova
 N      ?= 20
-ENGINE ?= kokoro
+ENGINE ?= qwentts
 SOURCE_MANIFEST ?= $(DIR)/voice_clone_sources.jsonl
 NEG_SOURCE_DIR ?=
 NEG_MANIFEST ?=
@@ -151,7 +151,7 @@ help:
 	@printf "  make start/dashboard DIR=...     Launch Streamlit dashboard\n"
 	@printf "  make cli-run DIR=...             Run the pure CLI wizard\n"
 	@printf "  make record PHRASE='Hey Nova'    Record guided positives\n"
-	@printf "  make synth ENGINE=kokoro|piper|qwentts  Generate TTS positives\n"
+	@printf "  make synth ENGINE=qwentts|kokoro|piper  Generate TTS positives\n"
 	@printf "  make import-negatives NEG_MANIFEST=... Import capped external negatives\n"
 	@printf "  make review DIR=...              Review/approve recorded samples\n"
 	@printf "  make audit DIR=...               Audit generated clips\n"

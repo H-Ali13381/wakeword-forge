@@ -194,11 +194,11 @@ def test_qwentts_backend_uses_cross_language_voice_design(monkeypatch):
 
 
 def test_qwentts_synthetic_backend_is_documented_and_optional_extra_declared():
-    readme = Path("README.md").read_text(encoding="utf-8")
+    docs = Path("README.md").read_text(encoding="utf-8") + Path("docs/advanced-usage.md").read_text(encoding="utf-8")
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
-    assert "ENGINE=qwentts" in readme
-    assert "13 mirrored CustomVoice voice designs" in readme
+    assert "ENGINE=qwentts" in docs
+    assert "QwenTTS is the recommended generator for synthetic data" in docs
     extras = pyproject["project"]["optional-dependencies"]
     assert "qwentts" in extras
     assert "qwen-tts" in extras["qwentts"]

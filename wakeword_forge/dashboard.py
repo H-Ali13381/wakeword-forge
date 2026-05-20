@@ -434,7 +434,7 @@ def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
         step=25,
         disabled=not use_tts,
     )
-    tts_engine_options = ["kokoro", "piper", "qwentts", "none"]
+    tts_engine_options = ["qwentts", "kokoro", "piper", "none"]
     tts_engine = st.selectbox(
         "TTS engine",
         options=tts_engine_options,
