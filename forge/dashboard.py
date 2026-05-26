@@ -963,7 +963,12 @@ def _recommended_advanced_acoustic_state(config: ForgeConfig) -> tuple[bool, dic
     return is_active, counts, sum(counts.values())
 
 
-def _render_recommended_advanced_acoustic_status(st, config: ForgeConfig) -> dict[str, Path]:
+def _render_recommended_advanced_acoustic_status(
+    st,
+    config: ForgeConfig,
+    *,
+    selected: bool = False,
+) -> dict[str, Path]:
     recommended_dirs = _recommended_advanced_acoustic_dirs(config)
     is_active, counts, imported_count = _recommended_advanced_acoustic_state(config)
     if is_active and imported_count:
@@ -979,10 +984,12 @@ def _render_recommended_advanced_acoustic_status(st, config: ForgeConfig) -> dic
             "</div>",
             unsafe_allow_html=True,
         )
-    elif is_active:
+    elif is_active or selected:
         st.warning(
             "Recommended advanced acoustic data is selected, but no audio files were found yet. "
-            "Use the import button below to install the project-local acoustic assets."
+            "Use the import button below to install the project-local acoustic assets into "
+            f"`{recommended_dirs['ir']}`, `{recommended_dirs['short_noise']}`, and "
+            f"`{recommended_dirs['low_frequency']}`."
         )
     else:
         st.caption(
@@ -1254,7 +1261,7 @@ def _render_recommended_advanced_acoustic_dialog(
 
 
 def _render_recommended_advanced_acoustic_import(st, config: ForgeConfig) -> dict[str, str]:
-    recommended_dirs = _render_recommended_advanced_acoustic_status(st, config)
+    recommended_dirs = _render_recommended_advanced_acoustic_status(st, config, selected=True)
     is_active, _counts, imported_count = _recommended_advanced_acoustic_state(config)
     if is_active and imported_count:
         action_label = "Re-import or repair recommended advanced acoustic data"

@@ -638,11 +638,12 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
     rendered = "\n".join(fake.markdowns + fake.captions + fake.warnings)
     warning_text = "\n".join(fake.warnings)
     caption_text = "\n".join(fake.captions)
-    assert "Recommended advanced acoustic data will be installed" in rendered
+    assert "Recommended advanced acoustic data is selected, but no audio files were found yet" in warning_text
+    assert "Recommended advanced acoustic data will be installed" not in caption_text
     assert "Recommended acoustic import installs project-local room impulse" in warning_text
     assert "Recommended acoustic import installs project-local room impulse" not in caption_text
     assert "Recommended advanced acoustic folders" not in rendered
-    assert str(dirs["ir"]) in rendered
+    assert str(dirs["ir"]) in warning_text
     assert "Import recommended advanced acoustic data" in fake.buttons
 
 
