@@ -1169,7 +1169,7 @@ def _render_recommended_open_data_import(st, config: ForgeConfig) -> str:
         action_label = "Re-import or repair recommended data"
     else:
         action_label = "Import recommended open-source data"
-        st.caption(
+        st.warning(
             "Recommended import includes Mozilla Common Voice, ESC-50 (CC BY-NC 3.0), "
             "and local synthetic clips; verify the dataset licenses in the confirmation popup."
         )
@@ -1260,7 +1260,7 @@ def _render_recommended_advanced_acoustic_import(st, config: ForgeConfig) -> dic
         action_label = "Re-import or repair recommended advanced acoustic data"
     else:
         action_label = "Import recommended advanced acoustic data"
-        st.caption(
+        st.warning(
             "Recommended acoustic import installs project-local room impulse, short transient, "
             "and low-frequency rumble clips; review the confirmation popup first."
         )

@@ -444,6 +444,9 @@ def test_augmentation_step_groups_controls_and_uses_dropdown_for_advanced_folder
         def caption(self, text, **_kwargs):
             self.captions.append(str(text))
 
+        def warning(self, *_args, **_kwargs):
+            pass
+
         def toggle(self, label, **kwargs):
             if label == "Use SpecAugment-style mel masking":
                 return False
@@ -513,6 +516,9 @@ def test_augmentation_step_defaults_advanced_folders_to_manual_when_any_value_is
         def caption(self, *_args, **_kwargs):
             pass
 
+        def warning(self, *_args, **_kwargs):
+            pass
+
         def toggle(self, label, **kwargs):
             if label == "Use SpecAugment-style mel masking":
                 return False
@@ -568,6 +574,7 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
             self.text_labels: list[str] = []
             self.markdowns: list[str] = []
             self.captions: list[str] = []
+            self.warnings: list[str] = []
             self.buttons: list[str] = []
 
         def subheader(self, *_args, **_kwargs):
@@ -578,6 +585,9 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
 
         def caption(self, text, **_kwargs):
             self.captions.append(str(text))
+
+        def warning(self, text, **_kwargs):
+            self.warnings.append(str(text))
 
         def toggle(self, label, **kwargs):
             if label == "Use SpecAugment-style mel masking":
@@ -625,8 +635,12 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
     assert updated.augmentation_ir_dir == str(dirs["ir"])
     assert updated.augmentation_short_noise_dir == str(dirs["short_noise"])
     assert updated.augmentation_truck_noise_dir == str(dirs["low_frequency"])
-    rendered = "\n".join(fake.markdowns + fake.captions)
+    rendered = "\n".join(fake.markdowns + fake.captions + fake.warnings)
+    warning_text = "\n".join(fake.warnings)
+    caption_text = "\n".join(fake.captions)
     assert "Recommended advanced acoustic data will be installed" in rendered
+    assert "Recommended acoustic import installs project-local room impulse" in warning_text
+    assert "Recommended acoustic import installs project-local room impulse" not in caption_text
     assert "Recommended advanced acoustic folders" not in rendered
     assert str(dirs["ir"]) in rendered
     assert "Import recommended advanced acoustic data" in fake.buttons
@@ -800,6 +814,7 @@ def test_augmentation_step_recommends_open_source_background_data_with_license_d
             self.buttons: list[str] = []
             self.captions: list[str] = []
             self.markdowns: list[str] = []
+            self.warnings: list[str] = []
 
         def subheader(self, *_args, **_kwargs):
             pass
@@ -809,6 +824,9 @@ def test_augmentation_step_recommends_open_source_background_data_with_license_d
 
         def markdown(self, text, **_kwargs):
             self.markdowns.append(str(text))
+
+        def warning(self, text, **_kwargs):
+            self.warnings.append(str(text))
 
         def toggle(self, label, **kwargs):
             if label == "Use SpecAugment-style mel masking":
@@ -858,11 +876,14 @@ def test_augmentation_step_recommends_open_source_background_data_with_license_d
         "Skip advanced acoustic folders",
     ]
     assert fake.text_labels == []
-    rendered = "\n".join(fake.captions + fake.markdowns)
+    rendered = "\n".join(fake.captions + fake.markdowns + fake.warnings)
+    warning_text = "\n".join(fake.warnings)
+    caption_text = "\n".join(fake.captions)
     assert "Mozilla Common Voice" in rendered
     assert "ESC-50" in rendered
     assert "CC BY-NC 3.0" in rendered
-    assert "verify the dataset licenses" in rendered
+    assert "verify the dataset licenses" in warning_text
+    assert "verify the dataset licenses" not in caption_text
     assert "Import recommended open-source data" in fake.buttons
     assert updated.augmentation_noise_dir == str(dashboard._recommended_open_data_dir(cfg))
 
