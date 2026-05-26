@@ -9,9 +9,11 @@ from __future__ import annotations
 import argparse
 import html
 import importlib.util
+import math
 import shlex
 import subprocess
 import sys
+import wave
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -38,6 +40,7 @@ from forge.update_check import UpdateRecommendation, check_for_updates
 
 DEFAULT_PROJECT_DIR = Path.cwd() / "projects" / "default"
 OPEN_DATA_CONFIRM_KEY = "forge_open_data_license_confirmation"
+ADVANCED_DATA_CONFIRM_KEY = "forge_advanced_acoustic_license_confirmation"
 RECOMMENDED_OPEN_DATA_TARGET = 200
 RECOMMENDED_OPEN_DATA_MODE = "Use recommended open-source data"
 MANUAL_OPEN_DATA_MODE = "Use my own local folder"
@@ -61,6 +64,14 @@ RECOMMENDED_OPEN_DATA_LICENSE_NOTICE = """Recommended open-source data may inclu
 - Locally generated synthetic silence/noise clips with no third-party dataset license.
 
 Only import datasets you are allowed to use for your project. wakeword-forge preserves this as local project data; you are responsible: verify the dataset licenses for your deployment context.
+""".strip()
+RECOMMENDED_ADVANCED_ACOUSTIC_LICENSE_NOTICE = """Recommended advanced acoustic data may include:
+
+- Locally generated synthetic room impulse responses for small-room/reverb simulation.
+- Locally generated short transient clips for click, tap, and brief household-noise robustness.
+- Locally generated low-frequency rumble clips for fan, vehicle, and machinery-style robustness.
+
+These generated assets are stored inside this project and are not uploaded by default. If you replace them with third-party/open datasets later, verify the dataset licenses before redistribution or deployment.
 """.strip()
 TTS_ENGINE_HELP = """TTS means text-to-speech: generated wake-phrase clips used to add voice variety.
 
@@ -938,20 +949,109 @@ def _advanced_acoustic_data_mode(config: ForgeConfig) -> str:
     return MANUAL_ADVANCED_ACOUSTIC_MODE
 
 
+def _recommended_advanced_acoustic_state(config: ForgeConfig) -> tuple[bool, dict[str, int], int]:
+    recommended_dirs = _recommended_advanced_acoustic_dirs(config)
+    is_active = (
+        Path(str(config.augmentation_ir_dir)).expanduser() == recommended_dirs["ir"]
+        and Path(str(config.augmentation_short_noise_dir)).expanduser() == recommended_dirs["short_noise"]
+        and Path(str(config.augmentation_truck_noise_dir)).expanduser() == recommended_dirs["low_frequency"]
+    )
+    counts = {
+        key: _count_supported_audio_files(directory) if directory.is_dir() else 0
+        for key, directory in recommended_dirs.items()
+    }
+    return is_active, counts, sum(counts.values())
+
+
 def _render_recommended_advanced_acoustic_status(st, config: ForgeConfig) -> dict[str, Path]:
     recommended_dirs = _recommended_advanced_acoustic_dirs(config)
-    st.markdown(
-        '<div class="forge-data-source-card">'
-        '<div class="forge-data-source-title">Recommended advanced acoustic folders</div>'
-        '<div class="forge-data-source-path">'
-        f'Room impulses: {html.escape(str(recommended_dirs["ir"]))}<br>'
-        f'Short transients: {html.escape(str(recommended_dirs["short_noise"]))}<br>'
-        f'Low-frequency rumble: {html.escape(str(recommended_dirs["low_frequency"]))}'
-        "</div>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    is_active, counts, imported_count = _recommended_advanced_acoustic_state(config)
+    if is_active and imported_count:
+        plural = "file" if imported_count == 1 else "files"
+        st.markdown(
+            '<div class="forge-data-source-card">'
+            f'<div class="forge-data-source-title">Active · {imported_count} advanced acoustic audio {plural}</div>'
+            '<div class="forge-data-source-path">'
+            f'Room impulses ({counts["ir"]}): {html.escape(str(recommended_dirs["ir"]))}<br>'
+            f'Short transients ({counts["short_noise"]}): {html.escape(str(recommended_dirs["short_noise"]))}<br>'
+            f'Low-frequency rumble ({counts["low_frequency"]}): {html.escape(str(recommended_dirs["low_frequency"]))}'
+            "</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    elif is_active:
+        st.warning(
+            "Recommended advanced acoustic data is selected, but no audio files were found yet. "
+            "Use the import button below to install the project-local acoustic assets."
+        )
+    else:
+        st.caption(
+            "Recommended advanced acoustic data will be installed into "
+            f"`{recommended_dirs['ir']}`, `{recommended_dirs['short_noise']}`, and "
+            f"`{recommended_dirs['low_frequency']}`."
+        )
     return recommended_dirs
+
+
+def _write_pcm16_wav(path: Path, samples: Sequence[float], sample_rate: int = 16_000) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        frames = bytearray()
+        for sample in samples:
+            clamped = max(-1.0, min(1.0, float(sample)))
+            frames.extend(int(clamped * 32767).to_bytes(2, byteorder="little", signed=True))
+        wav_file.writeframes(bytes(frames))
+    return path
+
+
+def import_recommended_advanced_acoustic_data(
+    config: ForgeConfig,
+    *,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> list[Path]:
+    """Install generated recommended room/transient/rumble acoustic assets."""
+
+    recommended_dirs = _recommended_advanced_acoustic_dirs(config)
+    for directory in recommended_dirs.values():
+        directory.mkdir(parents=True, exist_ok=True)
+    if progress_callback is not None:
+        progress_callback("Preparing recommended acoustic folders", 0, 3)
+
+    sample_rate = 16_000
+    impulse_samples = [0.0] * int(sample_rate * 0.35)
+    for index in range(len(impulse_samples)):
+        if index == 0:
+            impulse_samples[index] = 1.0
+        else:
+            impulse_samples[index] = 0.45 * math.exp(-index / 1_250) * math.sin(index * 0.19)
+
+    transient_samples = [0.0] * int(sample_rate * 0.35)
+    for center in (900, 2_400, 3_900):
+        for offset in range(-80, 81):
+            index = center + offset
+            if 0 <= index < len(transient_samples):
+                envelope = max(0.0, 1.0 - abs(offset) / 81)
+                transient_samples[index] += 0.42 * envelope * math.sin(index * 1.73)
+
+    rumble_samples = [
+        0.34 * math.sin(2 * math.pi * 55 * index / sample_rate)
+        + 0.12 * math.sin(2 * math.pi * 93 * index / sample_rate)
+        for index in range(int(sample_rate * 3.0))
+    ]
+
+    if progress_callback is not None:
+        progress_callback("Installing room and noise assets", 1, 3)
+    imported = [
+        _write_pcm16_wav(recommended_dirs["ir"] / "synthetic_room_impulse_0001.wav", impulse_samples),
+        _write_pcm16_wav(recommended_dirs["short_noise"] / "synthetic_short_transients_0001.wav", transient_samples),
+        _write_pcm16_wav(recommended_dirs["low_frequency"] / "synthetic_low_frequency_rumble_0001.wav", rumble_samples),
+    ]
+    if progress_callback is not None:
+        progress_callback("Recommended acoustic assets ready", 3, 3)
+    return imported
 
 
 def import_recommended_open_audio(
@@ -1081,6 +1181,98 @@ def _render_recommended_open_data_import(st, config: ForgeConfig) -> str:
     return str(recommended_dir)
 
 
+def _render_recommended_advanced_acoustic_confirmation(
+    st,
+    config: ForgeConfig,
+    recommended_dirs: dict[str, Path],
+) -> None:
+    st.warning("Confirm the notice before installing recommended advanced acoustic data.")
+    st.markdown(RECOMMENDED_ADVANCED_ACOUSTIC_LICENSE_NOTICE)
+    st.caption(
+        "Import targets: "
+        f"`{recommended_dirs['ir']}`, `{recommended_dirs['short_noise']}`, and "
+        f"`{recommended_dirs['low_frequency']}`"
+    )
+    accepted = st.checkbox(
+        "I understand what will be installed and will verify any replacement dataset licenses before redistribution or deployment."
+    )
+
+    cancel_col, confirm_col = st.columns(2)
+    with cancel_col:
+        if st.button("Cancel", type="secondary", use_container_width=True):
+            st.session_state[ADVANCED_DATA_CONFIRM_KEY] = False
+            st.rerun()
+    with confirm_col:
+        confirmed = st.button(
+            "Confirm and install recommended acoustic data",
+            type="primary",
+            disabled=not accepted,
+            use_container_width=True,
+        )
+    if not confirmed:
+        return
+
+    progress_bar = st.progress(0.0, text="Preparing recommended acoustic folders")
+
+    def progress_callback(label: str, step: int, total: int) -> None:
+        denominator = max(total, 1)
+        value = max(0.0, min(1.0, step / denominator))
+        progress_bar.progress(value, text=label)
+
+    updated = replace(
+        config,
+        augmentation_ir_dir=str(recommended_dirs["ir"]),
+        augmentation_short_noise_dir=str(recommended_dirs["short_noise"]),
+        augmentation_truck_noise_dir=str(recommended_dirs["low_frequency"]),
+    )
+    with st.spinner("Installing recommended advanced acoustic data"):
+        imported = import_recommended_advanced_acoustic_data(updated, progress_callback=progress_callback)
+    save_config(updated)
+    plural = "file" if len(imported) == 1 else "files"
+    st.success(f"Installed {len(imported)} recommended advanced acoustic audio {plural}.")
+    st.session_state[ADVANCED_DATA_CONFIRM_KEY] = False
+    st.rerun()
+
+
+def _render_recommended_advanced_acoustic_dialog(
+    st,
+    config: ForgeConfig,
+    recommended_dirs: dict[str, Path],
+) -> None:
+    dialog = getattr(st, "dialog", None)
+    if callable(dialog):
+        dialog = cast(Callable[[str], Callable[[Callable[[], None]], Callable[[], None]]], dialog)
+
+        @dialog("Import recommended advanced acoustic data")
+        def confirmation_dialog() -> None:
+            _render_recommended_advanced_acoustic_confirmation(st, config, recommended_dirs)
+
+        confirmation_dialog()
+        return
+
+    _render_recommended_advanced_acoustic_confirmation(st, config, recommended_dirs)
+
+
+def _render_recommended_advanced_acoustic_import(st, config: ForgeConfig) -> dict[str, str]:
+    recommended_dirs = _render_recommended_advanced_acoustic_status(st, config)
+    is_active, _counts, imported_count = _recommended_advanced_acoustic_state(config)
+    if is_active and imported_count:
+        action_label = "Re-import or repair recommended advanced acoustic data"
+    else:
+        action_label = "Import recommended advanced acoustic data"
+        st.caption(
+            "Recommended acoustic import installs project-local room impulse, short transient, "
+            "and low-frequency rumble clips; review the confirmation popup first."
+        )
+    if st.button(action_label, type="secondary", use_container_width=True):
+        st.session_state[ADVANCED_DATA_CONFIRM_KEY] = True
+
+    if st.session_state.get(ADVANCED_DATA_CONFIRM_KEY):
+        _render_recommended_advanced_acoustic_dialog(st, config, recommended_dirs)
+
+    return {key: str(value) for key, value in recommended_dirs.items()}
+
+
 def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
     """Render only generated-audio parameters for the third wizard step."""
 
@@ -1181,10 +1373,10 @@ def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
         short_noise_dir = ""
         truck_noise_dir = ""
     elif advanced_mode == RECOMMENDED_OPEN_DATA_MODE:
-        advanced_dirs = _render_recommended_advanced_acoustic_status(st, config)
-        ir_dir = str(advanced_dirs["ir"])
-        short_noise_dir = str(advanced_dirs["short_noise"])
-        truck_noise_dir = str(advanced_dirs["low_frequency"])
+        advanced_dirs = _render_recommended_advanced_acoustic_import(st, config)
+        ir_dir = advanced_dirs["ir"]
+        short_noise_dir = advanced_dirs["short_noise"]
+        truck_noise_dir = advanced_dirs["low_frequency"]
     elif advanced_mode == MANUAL_ADVANCED_ACOUSTIC_MODE:
         st.caption("Optional local folders for impulse responses, short transients, and low-frequency rumble.")
         ir_dir = st.text_input(

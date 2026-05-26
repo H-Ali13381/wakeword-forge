@@ -568,6 +568,7 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
             self.text_labels: list[str] = []
             self.markdowns: list[str] = []
             self.captions: list[str] = []
+            self.buttons: list[str] = []
 
         def subheader(self, *_args, **_kwargs):
             pass
@@ -596,7 +597,8 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
             self.text_labels.append(str(label))
             return kwargs["value"]
 
-        def button(self, *_args, **_kwargs):
+        def button(self, label, **_kwargs):
+            self.buttons.append(str(label))
             return False
 
         def columns(self, count):
@@ -624,8 +626,170 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
     assert updated.augmentation_short_noise_dir == str(dirs["short_noise"])
     assert updated.augmentation_truck_noise_dir == str(dirs["low_frequency"])
     rendered = "\n".join(fake.markdowns + fake.captions)
-    assert "Recommended advanced acoustic folders" in rendered
+    assert "Recommended advanced acoustic data will be installed" in rendered
+    assert "Recommended advanced acoustic folders" not in rendered
     assert str(dirs["ir"]) in rendered
+    assert "Import recommended advanced acoustic data" in fake.buttons
+
+
+def test_augmentation_step_opens_recommended_advanced_acoustic_confirmation_in_modal(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.dialog_titles: list[str] = []
+            self.buttons: list[str] = []
+            self.markdowns: list[str] = []
+            self.checkboxes: list[str] = []
+            self.warnings: list[str] = []
+            self.captions: list[str] = []
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def markdown(self, text, **_kwargs):
+            self.markdowns.append(str(text))
+
+        def warning(self, text, **_kwargs):
+            self.warnings.append(str(text))
+
+        def checkbox(self, label, **_kwargs):
+            self.checkboxes.append(str(label))
+            return False
+
+        def button(self, label, **_kwargs):
+            label = str(label)
+            self.buttons.append(label)
+            return label == "Import recommended advanced acoustic data"
+
+        def dialog(self, title):
+            self.dialog_titles.append(str(title))
+
+            def decorator(fn):
+                def wrapped(*args, **kwargs):
+                    return fn(*args, **kwargs)
+
+                return wrapped
+
+            return decorator
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    selected_dirs = dashboard._render_recommended_advanced_acoustic_import(fake, cfg)
+
+    assert fake.session_state[dashboard.ADVANCED_DATA_CONFIRM_KEY] is True
+    assert fake.dialog_titles == ["Import recommended advanced acoustic data"]
+    rendered_modal = "\n".join(fake.markdowns + fake.warnings + fake.checkboxes + fake.buttons + fake.captions)
+    assert "Recommended advanced acoustic data may include" in rendered_modal
+    assert "Confirm and install recommended acoustic data" in fake.buttons
+    assert selected_dirs["ir"] == str(dashboard._recommended_advanced_acoustic_dirs(cfg)["ir"])
+
+
+def test_augmentation_step_installs_recommended_advanced_acoustic_data_with_progress(monkeypatch, tmp_path):
+    calls: list[ForgeConfig] = []
+
+    def fake_import_recommended_advanced_acoustic_data(config: ForgeConfig, *, progress_callback=None):
+        calls.append(config)
+        if progress_callback is not None:
+            progress_callback("Preparing recommended acoustic folders", 0, 3)
+            progress_callback("Installing room and noise assets", 1, 3)
+            progress_callback("Recommended acoustic assets ready", 3, 3)
+        dirs = dashboard._recommended_advanced_acoustic_dirs(config)
+        imported = []
+        for name, directory in dirs.items():
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"{name}_0001.wav"
+            path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+            imported.append(path)
+        return imported
+
+    monkeypatch.setattr(
+        dashboard,
+        "import_recommended_advanced_acoustic_data",
+        fake_import_recommended_advanced_acoustic_data,
+    )
+
+    class Progress:
+        def __init__(self, owner):
+            self.owner = owner
+
+        def progress(self, value, *, text=""):
+            self.owner.progress_updates.append((value, text))
+
+    class Spinner:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeSt:
+        def __init__(self):
+            self.session_state = {dashboard.ADVANCED_DATA_CONFIRM_KEY: True}
+            self.progress_updates: list[tuple[float, str]] = []
+            self.successes: list[str] = []
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def markdown(self, *_args, **_kwargs):
+            pass
+
+        def warning(self, *_args, **_kwargs):
+            pass
+
+        def checkbox(self, *_args, **_kwargs):
+            return True
+
+        def button(self, label, **_kwargs):
+            return label == "Confirm and install recommended acoustic data"
+
+        def progress(self, value, *, text=""):
+            self.progress_updates.append((value, text))
+            return Progress(self)
+
+        def spinner(self, *_args, **_kwargs):
+            return Spinner()
+
+        def success(self, text):
+            self.successes.append(str(text))
+
+        def rerun(self):
+            self.session_state["rerun_requested"] = True
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    selected_dirs = dashboard._render_recommended_advanced_acoustic_import(fake, cfg)
+
+    assert calls
+    saved = ForgeConfig.load(tmp_path / "forge_config.json")
+    assert saved.augmentation_ir_dir == selected_dirs["ir"]
+    assert saved.augmentation_short_noise_dir == selected_dirs["short_noise"]
+    assert saved.augmentation_truck_noise_dir == selected_dirs["low_frequency"]
+    assert fake.progress_updates[0] == (0.0, "Preparing recommended acoustic folders")
+    assert fake.progress_updates[-1] == (1.0, "Recommended acoustic assets ready")
+    assert any("Installed 3 recommended advanced acoustic audio files" in message for message in fake.successes)
+    assert fake.session_state[dashboard.ADVANCED_DATA_CONFIRM_KEY] is False
+    assert fake.session_state["rerun_requested"] is True
 
 def test_augmentation_step_recommends_open_source_background_data_with_license_disclaimer(tmp_path):
     class FakeSt:
