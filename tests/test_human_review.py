@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from wakeword_forge.config import BACKGROUND_NEGATIVE_TARGET, ForgeConfig, MIN_POSITIVES
-from wakeword_forge.project import inspect_project
-from wakeword_forge.review import (
+from forge.config import BACKGROUND_NEGATIVE_TARGET, ForgeConfig, MIN_POSITIVES
+from forge.project import inspect_project
+from forge.review import (
     QualityObservation,
     accept_model,
     approve_generated_review,

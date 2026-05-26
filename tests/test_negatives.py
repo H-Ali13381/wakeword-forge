@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wakeword_forge.negatives import _generate_synthetic_negatives, ensure_negatives
+from forge.negatives import _generate_synthetic_negatives, ensure_negatives
 
 
 def _touch_wav(path: Path) -> None:

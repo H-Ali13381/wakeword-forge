@@ -1,6 +1,6 @@
 import pytest
 
-from wakeword_forge.trainer import SUPPORTED_BACKENDS, validate_backend
+from forge.trainer import SUPPORTED_BACKENDS, validate_backend
 
 
 def test_public_release_supports_only_wavlm_repcnn_backend():

@@ -9,15 +9,15 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from wakeword_forge.config import BACKGROUND_NEGATIVE_TARGET, ForgeConfig, SAMPLE_RATE
-from wakeword_forge.models.wavlm_repcnn import (
+from forge.config import BACKGROUND_NEGATIVE_TARGET, ForgeConfig, SAMPLE_RATE
+from forge.models.wavlm_repcnn import (
     RepConvBlock,
     WakewordDataset,
     WavLMRepCNNTrainer,
     export_repcnn_onnx,
 )
-from wakeword_forge.review import training_data_fingerprint
-from wakeword_forge.trainer import run_training
+from forge.review import training_data_fingerprint
+from forge.trainer import run_training
 
 
 def _write_wav(path: Path, seconds: float = 0.25, freq: float = 440.0) -> None:
@@ -56,7 +56,7 @@ def test_wavlm_repcnn_trainer_export_without_training_checkpoint_raises(tmp_path
 
 
 def test_export_repcnn_onnx_writes_distillation_metadata(tmp_path):
-    from wakeword_forge.models.wavlm_repcnn import RepCNN
+    from forge.models.wavlm_repcnn import RepCNN
 
     path = tmp_path / "wakeword.onnx"
 
@@ -136,9 +136,9 @@ def test_run_training_dispatches_default_wavlm_repcnn_backend(tmp_path, monkeypa
             out.write_bytes(b"fake")
             return out
 
-    fake_module = types.ModuleType("wakeword_forge.models.wavlm_repcnn")
+    fake_module = types.ModuleType("forge.models.wavlm_repcnn")
     fake_module.WavLMRepCNNTrainer = FakeWavLMRepCNNTrainer
-    monkeypatch.setitem(sys.modules, "wakeword_forge.models.wavlm_repcnn", fake_module)
+    monkeypatch.setitem(sys.modules, "forge.models.wavlm_repcnn", fake_module)
 
     cfg = ForgeConfig(project_dir=str(tmp_path), wake_phrase="Hey Nova", use_tts_augmentation=False)
     exported = run_training(cfg)

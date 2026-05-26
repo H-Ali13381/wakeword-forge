@@ -4,16 +4,16 @@ import runpy
 import tomllib
 from pathlib import Path
 
-from wakeword_forge.config import (
+from forge.config import (
     BACKGROUND_NEGATIVE_TARGET,
     ForgeConfig,
     MIN_NEGATIVES,
     MIN_POSITIVES,
     PARTIAL_NEGATIVE_TARGET,
 )
-import wakeword_forge.dashboard as dashboard
-from wakeword_forge.dashboard import make_command
-from wakeword_forge.project import inspect_project
+import forge.dashboard as dashboard
+from forge.dashboard import make_command
+from forge.project import inspect_project
 
 
 def _touch_wav(path: Path) -> None:
@@ -105,7 +105,7 @@ def test_make_command_outputs_copy_pasteable_cli_fallbacks(tmp_path):
 
 
 def test_dashboard_script_loads_when_executed_by_streamlit_runner():
-    namespace = runpy.run_path("wakeword_forge/dashboard.py")
+    namespace = runpy.run_path("forge/dashboard.py")
 
     default_dir = namespace["DEFAULT_PROJECT_DIR"]
     assert default_dir.parts[-2:] == ("projects", "default")
@@ -444,7 +444,7 @@ def test_intro_step_renders_title_card_and_begin_button(tmp_path):
 
 
 def test_update_notice_warns_when_github_has_new_commits():
-    from wakeword_forge.update_check import UpdateRecommendation
+    from forge.update_check import UpdateRecommendation
 
     fake = CaptureFakeSt()
     recommendation = UpdateRecommendation(
@@ -466,7 +466,7 @@ def test_update_notice_warns_when_github_has_new_commits():
 
 
 def test_update_notice_stays_quiet_when_checkout_is_current():
-    from wakeword_forge.update_check import UpdateRecommendation
+    from forge.update_check import UpdateRecommendation
 
     fake = CaptureFakeSt()
     recommendation = UpdateRecommendation(
@@ -483,7 +483,7 @@ def test_update_notice_stays_quiet_when_checkout_is_current():
 
 
 def test_update_recommendation_is_cached_in_session_state():
-    from wakeword_forge.update_check import UpdateRecommendation
+    from forge.update_check import UpdateRecommendation
 
     fake = CaptureFakeSt()
     recommendation = UpdateRecommendation(
@@ -891,4 +891,4 @@ def test_pyproject_declares_streamlit_ui_extra_and_dashboard_script():
     optional = data["project"]["optional-dependencies"]
     assert any(dep.startswith("streamlit>=") for dep in optional["ui"])
     assert "wakeword-forge-dashboard" in data["project"]["scripts"]
-    assert data["project"]["scripts"]["wakeword-forge-dashboard"] == "wakeword_forge.dashboard:main"
+    assert data["project"]["scripts"]["wakeword-forge-dashboard"] == "forge.dashboard:main"

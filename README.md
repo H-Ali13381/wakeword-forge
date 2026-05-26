@@ -31,6 +31,8 @@ make start DIR=./projects/default
 
 `DIR` is your local wake-word project folder. The default `./projects/default` workspace stays inside the checkout but is ignored by git. It will contain `samples/`, `output/wakeword.onnx`, and `output/config.json`.
 
+Name map: the repo and CLI are named `wakeword-forge`; source code lives in `forge/`; your local training workspace is whatever `DIR=...` points at.
+
 Terminal-only: `make cli-run DIR=./projects/default`
 
 <p align="center">

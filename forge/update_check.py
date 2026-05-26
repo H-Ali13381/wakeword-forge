@@ -12,14 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from wakeword_forge import __version__ as LOCAL_VERSION
+from forge import __version__ as LOCAL_VERSION
 
 DEFAULT_GITHUB_REPO = "H-Ali13381/wakeword-forge"
 DEFAULT_BRANCH = "main"
 GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_RAW_ROOT = "https://raw.githubusercontent.com"
 GITHUB_REPO_URL = f"https://github.com/{DEFAULT_GITHUB_REPO}"
-VERSION_FILE_PATH = "wakeword_forge/__init__.py"
+VERSION_FILE_PATH = "forge/__init__.py"
 DEFAULT_UPDATE_COMMAND = f"git pull --ff-only origin {DEFAULT_BRANCH}"
 PYPI_UPDATE_COMMAND = (
     f'pip install --upgrade "wakeword-forge[ui,tts] @ git+https://github.com/{DEFAULT_GITHUB_REPO}.git"'

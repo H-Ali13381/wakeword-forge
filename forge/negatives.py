@@ -21,7 +21,7 @@ The downloader is intentionally conservative: it stops once the target
 count is reached, so it never over-downloads.
 
 Usage (standalone):
-    python -m wakeword_forge.negatives --out samples/negatives --n 200
+    python -m forge.negatives --out samples/negatives --n 200
 """
 
 from __future__ import annotations

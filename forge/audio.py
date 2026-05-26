@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from wakeword_forge.config import SAMPLE_RATE
+from forge.config import SAMPLE_RATE
 
 
 def trim_silence_edges(

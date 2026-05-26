@@ -17,14 +17,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from wakeword_forge.config import (
+from forge.config import (
     CONFUSABLE_NEGATIVE_TARGET,
     ForgeConfig,
     MIN_NEGATIVES,
     MIN_POSITIVES,
     normalize_phrases,
 )
-from wakeword_forge.project import (
+from forge.project import (
     ensure_project_dirs,
     import_positive_samples,
     inspect_project,
@@ -32,7 +32,7 @@ from wakeword_forge.project import (
     reset_project,
     save_config,
 )
-from wakeword_forge.update_check import UpdateRecommendation, check_for_updates
+from forge.update_check import UpdateRecommendation, check_for_updates
 
 DEFAULT_PROJECT_DIR = Path.cwd() / "projects" / "default"
 TTS_ENGINE_HELP = """TTS means text-to-speech: generated wake-phrase clips used to add voice variety.
@@ -260,10 +260,10 @@ def _run_blocking_action(label: str, action: Callable[[], object]) -> None:
     st.rerun()
 
 
-DASHBOARD_STEP_KEY = "wakeword_forge_dashboard_step"
-LAST_CAPTURED_TAKE_KEY = "wakeword_forge_last_captured_take"
-RESET_MESSAGE_KEY = "wakeword_forge_reset_message"
-UPDATE_CHECK_STATE_KEY = "wakeword_forge_update_check"
+DASHBOARD_STEP_KEY = "forge_dashboard_step"
+LAST_CAPTURED_TAKE_KEY = "forge_last_captured_take"
+RESET_MESSAGE_KEY = "forge_reset_message"
+UPDATE_CHECK_STATE_KEY = "forge_update_check"
 WIZARD_STEPS = ("intro", "workspace", "recording", "augmentation", "capture", "review", "train", "done")
 WIZARD_STEP_LABELS = {
     "intro": "Start",
@@ -539,8 +539,8 @@ def _record_one_take(*, phrase: str, out_dir: Path, duration: float, prefix: str
 
     import soundfile as sf
 
-    from wakeword_forge.config import SAMPLE_RATE
-    from wakeword_forge.recorder import _prepare_recorded_take, _record_take
+    from forge.config import SAMPLE_RATE
+    from forge.recorder import _prepare_recorded_take, _record_take
 
     _ = phrase  # Phrase is displayed by the dashboard; keep it in the call contract.
     audio = _prepare_recorded_take(_record_take(duration, SAMPLE_RATE), SAMPLE_RATE)
@@ -855,7 +855,7 @@ def _render_capture_step(st, config: ForgeConfig, status) -> None:
         synth_missing = max(0, config.tts_variants - status.synthetic_positives)
         if synth_missing > 0:
             if st.button(f"Generate {synth_missing} TTS positives", use_container_width=True):
-                from wakeword_forge.synthesizer import synthesize_positive_phrases
+                from forge.synthesizer import synthesize_positive_phrases
 
                 _run_blocking_action(
                     "Generating synthetic positives",
@@ -870,7 +870,7 @@ def _render_capture_step(st, config: ForgeConfig, status) -> None:
 
         st.success(f"Synthetic positives ready: {status.synthetic_positives}/{config.tts_variants}.")
 
-        from wakeword_forge.synthesizer import load_confusable_phrases
+        from forge.synthesizer import load_confusable_phrases
 
         phrases = _phrase_list_for_generation(config)
         partial_phrases = tuple(phrase for phrase in phrases if len(phrase.split()) >= 2)
@@ -897,7 +897,7 @@ def _render_capture_step(st, config: ForgeConfig, status) -> None:
             disabled=hard_missing == 0,
             use_container_width=True,
         ):
-            from wakeword_forge.synthesizer import synthesize_confusable_negatives, synthesize_partial_negatives
+            from forge.synthesizer import synthesize_confusable_negatives, synthesize_partial_negatives
 
             def hard_negatives() -> None:
                 if partial_missing:
@@ -933,7 +933,7 @@ def _render_capture_step(st, config: ForgeConfig, status) -> None:
         disabled=background_missing == 0,
         use_container_width=True,
     ):
-        from wakeword_forge.negatives import ensure_negatives
+        from forge.negatives import ensure_negatives
 
         _run_blocking_action(
             "Creating background negatives",
@@ -953,7 +953,7 @@ def _render_train_step(st, config: ForgeConfig, status) -> None:
     st.subheader("6. Train and test")
     st.caption("Train only after review gates are current. Quality checking stays explicit.")
     if st.button("Train detector", type="primary", disabled=not status.ready_to_train, use_container_width=True):
-        from wakeword_forge.trainer import run_training
+        from forge.trainer import run_training
 
         _run_blocking_action("Training detector", lambda: run_training(config))
     if status.has_model:
@@ -1166,7 +1166,7 @@ def _status_badge(value: bool) -> str:
 
 
 def _render_review_checkpoints(st, config: ForgeConfig, status) -> None:
-    from wakeword_forge.review import (
+    from forge.review import (
         accept_model,
         approve_generated_review,
         approve_sample_review,

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from wakeword_forge.config import SAMPLE_RATE
-from wakeword_forge.recorder import _prepare_recorded_take
+from forge.config import SAMPLE_RATE
+from forge.recorder import _prepare_recorded_take
 
 
 def test_prepare_recorded_take_trims_edge_silence():

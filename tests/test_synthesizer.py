@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from wakeword_forge.config import SAMPLE_RATE
-from wakeword_forge import synthesizer
+from forge.config import SAMPLE_RATE
+from forge import synthesizer
 
 
 def _touch_wav(path: Path) -> None:

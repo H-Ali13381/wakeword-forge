@@ -4,7 +4,7 @@ tests/test_config.py — unit tests for ForgeConfig
 
 
 
-from wakeword_forge.config import ForgeConfig
+from forge.config import ForgeConfig
 
 
 def test_save_load_roundtrip(tmp_path):

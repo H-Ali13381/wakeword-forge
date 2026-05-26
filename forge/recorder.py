@@ -8,7 +8,7 @@ Guides the user through N takes of their wake-phrase, with:
   - Accept / retry / skip per take
 
 Usage (standalone test):
-    python -m wakeword_forge.recorder --phrase "Hey Nova" --n 20 --out samples/positives
+    python -m forge.recorder --phrase "Hey Nova" --n 20 --out samples/positives
 """
 
 from __future__ import annotations

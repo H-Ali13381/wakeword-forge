@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from wakeword_forge.update_check import UpdateRecommendation, check_for_updates, recommendation_from_compare_payload
+from forge.update_check import UpdateRecommendation, check_for_updates, recommendation_from_compare_payload
 
 
 def test_compare_payload_recommends_update_when_github_branch_has_new_commits():

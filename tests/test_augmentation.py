@@ -7,7 +7,7 @@ import soundfile as sf
 import torch
 from pathlib import Path
 
-from wakeword_forge.augmentation import (
+from forge.augmentation import (
     add_gaussian_noise,
     speed_perturb,
     time_shift,
@@ -18,7 +18,7 @@ from wakeword_forge.augmentation import (
     build_training_augmentors,
     _load_wav,
 )
-from wakeword_forge.config import SAMPLE_RATE, MAX_SAMPLES, ForgeConfig
+from forge.config import SAMPLE_RATE, MAX_SAMPLES, ForgeConfig
 
 
 def make_wav(duration=1.0):

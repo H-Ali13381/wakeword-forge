@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from wakeword_forge.cli import app
-from wakeword_forge.config import ForgeConfig
+from forge.cli import app
+from forge.config import ForgeConfig
 
 
 def test_info_displays_zero_eer_as_trained_metric(tmp_path):
@@ -26,7 +26,7 @@ def test_synth_defaults_to_qwentts_generator(monkeypatch, tmp_path):
         calls.update({"phrase": phrase, "out_dir": out_dir, "n": n, "engine": engine})
         return []
 
-    import wakeword_forge.synthesizer as synthesizer
+    import forge.synthesizer as synthesizer
 
     monkeypatch.setattr(synthesizer, "synthesize_positives", fake_synthesize_positives)
 

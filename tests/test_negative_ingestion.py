@@ -7,11 +7,11 @@ import numpy as np
 import soundfile as sf
 from typer.testing import CliRunner
 
-from wakeword_forge.cli import app
-from wakeword_forge.config import SAMPLE_RATE
-from wakeword_forge.negative_ingestion import import_negative_audio
-from wakeword_forge.project import inspect_project
-from wakeword_forge.config import ForgeConfig
+from forge.cli import app
+from forge.config import SAMPLE_RATE
+from forge.negative_ingestion import import_negative_audio
+from forge.project import inspect_project
+from forge.config import ForgeConfig
 
 
 def _write_wav(path: Path, *, sample_rate: int = SAMPLE_RATE, seconds: float = 1.0, channels: int = 1) -> None:

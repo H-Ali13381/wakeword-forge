@@ -7,10 +7,10 @@ import pytest
 import soundfile as sf
 from typer.testing import CliRunner
 
-from wakeword_forge.cli import app
-from wakeword_forge.config import ForgeConfig, SAMPLE_RATE
-from wakeword_forge.project import ensure_project_dirs, inspect_project
-from wakeword_forge.voice_clone import (
+from forge.cli import app
+from forge.config import ForgeConfig, SAMPLE_RATE
+from forge.project import ensure_project_dirs, inspect_project
+from forge.voice_clone import (
     DEFAULT_QWENTTS_MODEL,
     SourcePolicyError,
     apply_cloned_sample_decision,
@@ -291,7 +291,7 @@ def test_qwentts_docker_runner_script_is_present_and_job_driven():
     text = runner.read_text(encoding="utf-8")
     compose_text = compose.read_text(encoding="utf-8")
     assert "../../projects/default" in compose_text
-    assert "${HOME}/wakeword_forge_project" not in compose_text
+    assert "${HOME}/forge_project" not in compose_text
     assert "--job" in text
     assert "generate_voice_clone" in text or "clone_voice" in text or "generate_custom_voice" in text
     assert "manifest" not in text.lower()

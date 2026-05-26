@@ -9,7 +9,7 @@ wakeword-forge source releases are tagged in git and published as GitHub Release
 Keep these in sync for every source release:
 
 - `pyproject.toml` `[project].version`
-- `wakeword_forge/__init__.py` `__version__`
+- `forge/__init__.py` `__version__`
 - `CHANGELOG.md` entry for the same version
 - Git tag `v<version>`
 - GitHub Release `v<version>`
@@ -46,7 +46,7 @@ If the release should stay unpublished while you review notes, add `--draft` to 
 
 ## Bumping a future release
 
-1. Update `pyproject.toml` and `wakeword_forge/__init__.py` to the new semantic version.
+1. Update `pyproject.toml` and `forge/__init__.py` to the new semantic version.
 2. Add a new top entry to `CHANGELOG.md` with the matching `v<version>` release URL.
 3. Update the version examples in this file.
 4. Run `make release-check` and the project checks needed for the release scope.

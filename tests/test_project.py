@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import soundfile as sf
 
-from wakeword_forge.config import ForgeConfig, SAMPLE_RATE
-from wakeword_forge.project import CONFIG_FILENAME, import_positive_samples, load_or_create_config, reset_project
-from wakeword_forge.review import training_data_fingerprint
+from forge.config import ForgeConfig, SAMPLE_RATE
+from forge.project import CONFIG_FILENAME, import_positive_samples, load_or_create_config, reset_project
+from forge.review import training_data_fingerprint
 
 
 def _write_wav(path, *, seconds: float = 0.25, sample_rate: int = SAMPLE_RATE) -> None:
