@@ -75,6 +75,7 @@ class ForgeConfig:
     record_negatives: int = 10
     record_duration: float = 4.0   # seconds per take; silence is trimmed before training
     sample_source_dir: str = ""    # optional folder of existing positive wake-phrase clips
+    negative_source_dir: str = ""  # optional folder of existing non-wakeword clips
 
     # Synthesis
     use_tts_augmentation: bool = True

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import runpy
 import tomllib
 from pathlib import Path
@@ -121,7 +122,7 @@ def test_dashboard_main_uses_dir_arg_when_streamlit_is_already_running(monkeypat
     assert calls == [str(tmp_path)]
 
 
-def test_workspace_step_shows_only_workspace_fields_and_preserves_review_fingerprints(tmp_path):
+def test_workspace_step_confirms_only_project_directory_and_preserves_review_fingerprints(tmp_path):
     class ForbiddenSidebar:
         def __getattr__(self, name):
             raise AssertionError(f"wizard settings should not render in sidebar: {name}")
@@ -138,13 +139,12 @@ def test_workspace_step_shows_only_workspace_fields_and_preserves_review_fingerp
         def caption(self, *_args, **_kwargs):
             pass
 
-        def text_input(self, label, value):
+        def text_input(self, label, value, **_kwargs):
             self.text_labels.append(label)
             return value
 
-        def text_area(self, label, value, **_kwargs):
-            self.text_labels.append(label)
-            return "Hey Nova\nHello Nova"
+        def text_area(self, *_args, **_kwargs):
+            raise AssertionError("wake phrase textarea should not appear in project-directory step")
 
         def number_input(self, *_args, **_kwargs):
             raise AssertionError("recording parameters leaked into workspace step")
@@ -169,6 +169,7 @@ def test_workspace_step_shows_only_workspace_fields_and_preserves_review_fingerp
 
     cfg = ForgeConfig(
         wake_phrase="Hey Nova",
+        wake_phrases=["Hello Nova"],
         project_dir=str(tmp_path),
         sample_review_fingerprint="samples123",
         generated_review_fingerprint="generated123",
@@ -180,14 +181,109 @@ def test_workspace_step_shows_only_workspace_fields_and_preserves_review_fingerp
 
     updated = dashboard._render_workspace_step(fake, cfg)
 
-    assert fake.text_labels == ["Project directory", "Wake phrases (one per line)"]
+    assert fake.text_labels == ["Project directory"]
     assert updated.wake_phrase == "Hey Nova"
-    assert updated.wake_phrases == ["Hey Nova", "Hello Nova"]
+    assert updated.wake_phrases == ["Hello Nova"]
     assert updated.sample_review_fingerprint == "samples123"
     assert updated.generated_review_fingerprint == "generated123"
     assert updated.quality_checked_model_path == "/tmp/model.onnx"
     assert updated.quality_checked_model_fingerprint == "quality123"
     assert updated.accepted_model_fingerprint == "accepted123"
+
+
+def test_phrase_step_uses_single_line_primary_phrase_and_alias_button(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.text_labels: list[str] = []
+            self.buttons: list[str] = []
+            self.button_kwargs: dict[str, dict] = {}
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def text_input(self, label, value="", **_kwargs):
+            self.text_labels.append(label)
+            if label == "Primary wake phrase":
+                return "Hey Nova"
+            return value
+
+        def text_area(self, *_args, **_kwargs):
+            raise AssertionError("wake phrases should not use a one-per-line textarea")
+
+        def button(self, label, **kwargs):
+            self.buttons.append(str(label))
+            self.button_kwargs[str(label)] = kwargs
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(project_dir=str(tmp_path))
+
+    updated = dashboard._render_phrase_step(fake, cfg)
+
+    assert fake.text_labels == ["Primary wake phrase"]
+    assert "Add another phrase" in fake.buttons
+    assert "Confirm wake phrase" in fake.buttons
+    assert fake.button_kwargs["Confirm wake phrase"]["type"] == "primary"
+    assert updated.wake_phrase == "Hey Nova"
+    assert updated.wake_phrases == []
+
+
+def test_phrase_step_renders_optional_alias_rows(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state = {dashboard.PHRASE_ALIAS_COUNT_KEY: 1}
+            self.text_labels: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def text_input(self, label, value="", **_kwargs):
+            self.text_labels.append(label)
+            if label == "Primary wake phrase":
+                return "Hey Nova"
+            if label == "Alias 1":
+                return "Hello Nova"
+            return value
+
+        def text_area(self, *_args, **_kwargs):
+            raise AssertionError("aliases should render as single-line inputs")
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(project_dir=str(tmp_path))
+
+    updated = dashboard._render_phrase_step(fake, cfg)
+
+    assert fake.text_labels == ["Primary wake phrase", "Alias 1"]
+    assert updated.wake_phrase == "Hey Nova"
+    assert updated.wake_phrases == ["Hello Nova"]
 
 
 def test_recording_step_shows_only_recording_parameters(tmp_path):
@@ -196,6 +292,8 @@ def test_recording_step_shows_only_recording_parameters(tmp_path):
             self.number_labels: list[str] = []
             self.text_labels: list[str] = []
             self.select_labels: list[str] = []
+            self.buttons: list[str] = []
+            self.button_kwargs: dict[str, dict] = {}
 
         def subheader(self, *_args, **_kwargs):
             pass
@@ -218,7 +316,9 @@ def test_recording_step_shows_only_recording_parameters(tmp_path):
             self.select_labels.append(label)
             return kwargs["options"][kwargs["index"]]
 
-        def button(self, *_args, **_kwargs):
+        def button(self, label, **kwargs):
+            self.buttons.append(str(label))
+            self.button_kwargs[str(label)] = kwargs
             return False
 
         def columns(self, count):
@@ -235,27 +335,34 @@ def test_recording_step_shows_only_recording_parameters(tmp_path):
 
     dashboard._render_recording_step(fake, cfg)
 
-    assert fake.select_labels == ["Positive sample source"]
+    assert fake.select_labels == ["Positive sample source", "Negative sample source"]
     assert fake.text_labels == []
     assert fake.number_labels == [
         "Target positive examples",
         "Target negative recordings",
         "Seconds per take",
     ]
+    assert fake.buttons[-2:] == ["Back", "Confirm recording plan"]
+    assert fake.button_kwargs["Back"]["type"] == "secondary"
+    assert fake.button_kwargs["Confirm recording plan"]["type"] == "primary"
 
 
 def test_augmentation_step_offers_qwentts_engine(tmp_path):
     class FakeSt:
         def __init__(self):
+            self.session_state: dict[str, object] = {}
             self.select_options: dict[str, list[str]] = {}
             self.select_help: dict[str, str] = {}
             self.text_labels: list[str] = []
+            self.buttons: list[str] = []
+            self.captions: list[str] = []
 
         def subheader(self, *_args, **_kwargs):
             pass
 
-        def caption(self, *_args, **_kwargs):
-            pass
+        def caption(self, *args, **_kwargs):
+            if args:
+                self.captions.append(str(args[0]))
 
         def toggle(self, label, **kwargs):
             if label == "Use SpecAugment-style mel masking":
@@ -274,7 +381,17 @@ def test_augmentation_step_offers_qwentts_engine(tmp_path):
             self.text_labels.append(str(label))
             return kwargs["value"]
 
-        def button(self, *_args, **_kwargs):
+        def button(self, label, **_kwargs):
+            self.buttons.append(str(label))
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
             return False
 
     fake = FakeSt()
@@ -292,22 +409,306 @@ def test_augmentation_step_offers_qwentts_engine(tmp_path):
     assert "Piper" in engine_help
     assert fake.select_options["Training augmentation preset"] == ["standard", "light"]
     assert fake.select_options["Background negative augmentation"] == ["light", "standard", "none"]
-    assert fake.text_labels == [
-        "Background noise folder",
-        "Room impulse response folder",
-        "Short noise folder",
-        "Low-frequency noise folder",
+    assert fake.select_options["Background noise data source"] == [
+        "Use recommended open-source data",
+        "Use my own local folder",
+        "Skip external background data",
     ]
+    assert fake.select_options["Advanced acoustic folder source"] == [
+        "Use recommended open-source data",
+        "Use my own local folders",
+        "Skip advanced acoustic folders",
+    ]
+    assert fake.text_labels == []
+    assert "Import recommended open-source data" not in fake.buttons
     assert updated.tts_engine == "qwentts"
     assert updated.training_augmentation_enabled is True
 
 
-def test_recording_step_can_choose_existing_positive_sample_folder(tmp_path):
-    source = tmp_path / "existing voice"
-
+def test_augmentation_step_groups_controls_and_uses_dropdown_for_advanced_folders(tmp_path):
     class FakeSt:
         def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.markdowns: list[str] = []
+            self.captions: list[str] = []
             self.text_labels: list[str] = []
+            self.select_options: dict[str, list[str]] = {}
+            self.buttons: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def markdown(self, text, **_kwargs):
+            self.markdowns.append(str(text))
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def toggle(self, label, **kwargs):
+            if label == "Use SpecAugment-style mel masking":
+                return False
+            return kwargs["value"]
+
+        def number_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            self.select_options[str(label)] = list(kwargs["options"])
+            if label == "Background noise data source":
+                return "Use recommended open-source data"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(str(label))
+            return kwargs["value"]
+
+        def button(self, label, **_kwargs):
+            self.buttons.append(str(label))
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    dashboard._render_augmentation_step(fake, cfg)
+
+    rendered = "\n".join(fake.markdowns + fake.captions)
+    assert "Generated positives" in rendered
+    assert "Optional synthetic wake-phrase clips" in rendered
+    assert "Training-time robustness" in rendered
+    assert "Augment reviewed samples during training" in rendered
+    assert "Background noise source" in rendered
+    assert "Choose the noise pool used by background mixing" in rendered
+    assert "Advanced acoustic folders" in rendered
+    assert "Optional room, transient, and low-frequency acoustic assets" in rendered
+    assert fake.select_options["Advanced acoustic folder source"] == [
+        "Use recommended open-source data",
+        "Use my own local folders",
+        "Skip advanced acoustic folders",
+    ]
+    assert fake.text_labels == []
+
+
+def test_augmentation_step_defaults_advanced_folders_to_manual_when_any_value_is_set(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.select_indices: dict[str, int] = {}
+            self.text_labels: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def markdown(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def toggle(self, label, **kwargs):
+            if label == "Use SpecAugment-style mel masking":
+                return False
+            return kwargs["value"]
+
+        def number_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            self.select_indices[str(label)] = int(kwargs["index"])
+            if label == "Background noise data source":
+                return "Use recommended open-source data"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(str(label))
+            return kwargs["value"]
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path),
+        augmentation_ir_dir=str(tmp_path / "impulses"),
+    )
+
+    dashboard._render_augmentation_step(fake, cfg)
+
+    assert fake.select_indices["Advanced acoustic folder source"] == 1
+    assert fake.text_labels[-3:] == [
+        "Room impulse response folder",
+        "Short noise folder",
+        "Low-frequency noise folder",
+    ]
+
+
+def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.select_options: dict[str, list[str]] = {}
+            self.text_labels: list[str] = []
+            self.markdowns: list[str] = []
+            self.captions: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def markdown(self, text, **_kwargs):
+            self.markdowns.append(str(text))
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def toggle(self, label, **kwargs):
+            if label == "Use SpecAugment-style mel masking":
+                return False
+            return kwargs["value"]
+
+        def number_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            self.select_options[str(label)] = list(kwargs["options"])
+            if label in {"Background noise data source", "Advanced acoustic folder source"}:
+                return "Use recommended open-source data"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(str(label))
+            return kwargs["value"]
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    updated = dashboard._render_augmentation_step(fake, cfg)
+
+    dirs = dashboard._recommended_advanced_acoustic_dirs(cfg)
+    assert fake.select_options["Advanced acoustic folder source"] == [
+        "Use recommended open-source data",
+        "Use my own local folders",
+        "Skip advanced acoustic folders",
+    ]
+    assert "Room impulse response folder" not in fake.text_labels
+    assert updated.augmentation_ir_dir == str(dirs["ir"])
+    assert updated.augmentation_short_noise_dir == str(dirs["short_noise"])
+    assert updated.augmentation_truck_noise_dir == str(dirs["low_frequency"])
+    rendered = "\n".join(fake.markdowns + fake.captions)
+    assert "Recommended advanced acoustic folders" in rendered
+    assert str(dirs["ir"]) in rendered
+
+def test_augmentation_step_recommends_open_source_background_data_with_license_disclaimer(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.select_options: dict[str, list[str]] = {}
+            self.text_labels: list[str] = []
+            self.buttons: list[str] = []
+            self.captions: list[str] = []
+            self.markdowns: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def markdown(self, text, **_kwargs):
+            self.markdowns.append(str(text))
+
+        def toggle(self, label, **kwargs):
+            if label == "Use SpecAugment-style mel masking":
+                return False
+            return kwargs["value"]
+
+        def number_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            self.select_options[str(label)] = list(kwargs["options"])
+            if label == "Background noise data source":
+                return "Use recommended open-source data"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(str(label))
+            return kwargs["value"]
+
+        def button(self, label, **_kwargs):
+            self.buttons.append(str(label))
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    updated = dashboard._render_augmentation_step(fake, cfg)
+
+    assert fake.select_options["Background noise data source"] == [
+        "Use recommended open-source data",
+        "Use my own local folder",
+        "Skip external background data",
+    ]
+    assert "Background noise folder" not in fake.text_labels
+    assert fake.select_options["Advanced acoustic folder source"] == [
+        "Use recommended open-source data",
+        "Use my own local folders",
+        "Skip advanced acoustic folders",
+    ]
+    assert fake.text_labels == []
+    rendered = "\n".join(fake.captions + fake.markdowns)
+    assert "Mozilla Common Voice" in rendered
+    assert "ESC-50" in rendered
+    assert "CC BY-NC 3.0" in rendered
+    assert "verify the dataset licenses" in rendered
+    assert "Import recommended open-source data" in fake.buttons
+    assert updated.augmentation_noise_dir == str(dashboard._recommended_open_data_dir(cfg))
+
+
+def test_augmentation_step_requires_license_confirmation_before_downloading_recommended_data(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state = {dashboard.OPEN_DATA_CONFIRM_KEY: True}
+            self.button_kwargs: dict[str, dict] = {}
+            self.checkboxes: list[str] = []
 
         def subheader(self, *_args, **_kwargs):
             pass
@@ -315,14 +716,358 @@ def test_recording_step_can_choose_existing_positive_sample_folder(tmp_path):
         def caption(self, *_args, **_kwargs):
             pass
 
-        def number_input(self, label, **kwargs):
-            if label == "Target positive examples":
-                return 12
+        def markdown(self, *_args, **_kwargs):
+            pass
+
+        def warning(self, *_args, **_kwargs):
+            pass
+
+        def toggle(self, label, **kwargs):
+            if label == "Use SpecAugment-style mel masking":
+                return False
             return kwargs["value"]
 
-        def selectbox(self, label, **_kwargs):
-            assert label == "Positive sample source"
-            return "Import existing folder"
+        def number_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            if label == "Background noise data source":
+                return "Use recommended open-source data"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def checkbox(self, label, **_kwargs):
+            self.checkboxes.append(str(label))
+            return False
+
+        def button(self, label, **kwargs):
+            self.button_kwargs[str(label)] = kwargs
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    dashboard._render_augmentation_step(fake, cfg)
+
+    assert any("license" in label.lower() for label in fake.checkboxes)
+    assert fake.button_kwargs["Confirm and download recommended data"]["disabled"] is True
+
+
+def test_augmentation_step_opens_recommended_data_confirmation_in_modal(tmp_path):
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.dialog_titles: list[str] = []
+            self.buttons: list[str] = []
+            self.markdowns: list[str] = []
+            self.checkboxes: list[str] = []
+            self.warnings: list[str] = []
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def markdown(self, text, **_kwargs):
+            self.markdowns.append(str(text))
+
+        def warning(self, text, **_kwargs):
+            self.warnings.append(str(text))
+
+        def checkbox(self, label, **_kwargs):
+            self.checkboxes.append(str(label))
+            return False
+
+        def button(self, label, **_kwargs):
+            label = str(label)
+            self.buttons.append(label)
+            return label == "Import recommended open-source data"
+
+        def dialog(self, title):
+            self.dialog_titles.append(str(title))
+
+            def decorator(fn):
+                def wrapped(*args, **kwargs):
+                    return fn(*args, **kwargs)
+
+                return wrapped
+
+            return decorator
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    dashboard._render_recommended_open_data_import(fake, cfg)
+
+    assert fake.session_state[dashboard.OPEN_DATA_CONFIRM_KEY] is True
+    assert fake.dialog_titles == ["Import recommended open-source data"]
+    rendered_modal = "\n".join(fake.markdowns + fake.warnings + fake.checkboxes + fake.buttons)
+    assert "Recommended open-source data may include" in rendered_modal
+    assert "Confirm and download recommended data" in fake.buttons
+
+
+def test_augmentation_step_makes_imported_recommended_data_state_obvious(tmp_path):
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+    recommended_dir = dashboard._recommended_open_data_dir(cfg)
+    _touch_wav(recommended_dir / "recommended_0001.wav")
+    _touch_wav(recommended_dir / "recommended_0002.wav")
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path),
+        augmentation_noise_dir=str(recommended_dir),
+    )
+
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.captions: list[str] = []
+            self.successes: list[str] = []
+            self.markdowns: list[str] = []
+            self.buttons: list[str] = []
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def success(self, text, **_kwargs):
+            self.successes.append(str(text))
+
+        def markdown(self, text, **_kwargs):
+            self.markdowns.append(str(text))
+
+        def button(self, label, **_kwargs):
+            self.buttons.append(str(label))
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+
+    selected_dir = dashboard._render_recommended_open_data_import(fake, cfg)
+
+    rendered = "\n".join(fake.successes + fake.captions + fake.markdowns)
+    assert selected_dir == str(recommended_dir)
+    assert "Recommended background data" not in rendered
+    assert "forge-data-source-kicker" not in rendered
+    assert "Active · 2 audio files" in rendered
+    assert str(recommended_dir) in rendered
+
+
+def test_augmentation_step_replaces_import_cta_with_repair_action_when_recommended_data_active(
+    tmp_path,
+):
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+    recommended_dir = dashboard._recommended_open_data_dir(cfg)
+    _touch_wav(recommended_dir / "recommended_0001.wav")
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path),
+        augmentation_noise_dir=str(recommended_dir),
+    )
+
+    class FakeSt:
+        def __init__(self):
+            self.session_state: dict[str, object] = {}
+            self.captions: list[str] = []
+            self.successes: list[str] = []
+            self.markdowns: list[str] = []
+            self.buttons: list[str] = []
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def success(self, text, **_kwargs):
+            self.successes.append(str(text))
+
+        def markdown(self, text, **_kwargs):
+            self.markdowns.append(str(text))
+
+        def button(self, label, **_kwargs):
+            self.buttons.append(str(label))
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+
+    dashboard._render_recommended_open_data_import(fake, cfg)
+
+    rendered = "\n".join(fake.successes + fake.captions + fake.markdowns)
+    assert "forge-data-source-card" in rendered
+    assert "Active · 1 audio file" in rendered
+    assert "This folder is selected for training-time background-noise augmentation." not in rendered
+    assert "Only needed if files are missing" not in rendered
+    assert "Recommended import includes" not in rendered
+    assert "Re-import or repair recommended data" in fake.buttons
+    assert "Import recommended open-source data" not in fake.buttons
+
+
+def test_augmentation_step_downloads_recommended_open_source_data_with_progress(monkeypatch, tmp_path):
+    calls: list[ForgeConfig] = []
+
+    def fake_import_recommended_open_audio(config: ForgeConfig, *, progress_callback=None):
+        calls.append(config)
+        if progress_callback is not None:
+            progress_callback("Preparing recommended data folders", 0, 3)
+            progress_callback("Downloading open-source audio", 1, 3)
+            progress_callback("Recommended audio ready", 3, 3)
+        out_dir = dashboard._recommended_open_data_dir(config)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        imported = out_dir / "recommended_0001.wav"
+        imported.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+        return [imported]
+
+    monkeypatch.setattr(dashboard, "import_recommended_open_audio", fake_import_recommended_open_audio)
+
+    class Progress:
+        def __init__(self, owner):
+            self.owner = owner
+
+        def progress(self, value, *, text=""):
+            self.owner.progress_updates.append((value, text))
+
+    class Spinner:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeSt:
+        def __init__(self):
+            self.session_state = {dashboard.OPEN_DATA_CONFIRM_KEY: True}
+            self.progress_updates: list[tuple[float, str]] = []
+            self.successes: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def markdown(self, *_args, **_kwargs):
+            pass
+
+        def warning(self, *_args, **_kwargs):
+            pass
+
+        def toggle(self, label, **kwargs):
+            if label == "Use SpecAugment-style mel masking":
+                return False
+            return kwargs["value"]
+
+        def number_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            if label == "Background noise data source":
+                return "Use recommended open-source data"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, _label, **kwargs):
+            return kwargs["value"]
+
+        def checkbox(self, *_args, **_kwargs):
+            return True
+
+        def button(self, label, **_kwargs):
+            return label == "Confirm and download recommended data"
+
+        def progress(self, value, *, text=""):
+            self.progress_updates.append((value, text))
+            return Progress(self)
+
+        def spinner(self, *_args, **_kwargs):
+            return Spinner()
+
+        def success(self, text):
+            self.successes.append(str(text))
+
+        def rerun(self):
+            self.session_state["rerun_requested"] = True
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    updated = dashboard._render_augmentation_step(fake, cfg)
+
+    assert calls == [updated]
+    assert fake.progress_updates[0] == (0.0, "Preparing recommended data folders")
+    assert fake.progress_updates[-1] == (1.0, "Recommended audio ready")
+    assert any("Imported 1 recommended open-source audio file" in message for message in fake.successes)
+    assert fake.session_state[dashboard.OPEN_DATA_CONFIRM_KEY] is False
+    assert fake.session_state["rerun_requested"] is True
+
+
+def test_recording_step_can_choose_existing_positive_sample_folder(tmp_path):
+    source = tmp_path / "existing voice"
+    _touch_wav(source / "okay_hermes_0001.wav")
+    _touch_wav(source / "nested" / "hey_hermes_0002.wav")
+    (source / "notes.txt").write_text("not audio")
+
+    class FakeSt:
+        def __init__(self):
+            self.text_labels: list[str] = []
+            self.number_labels: list[str] = []
+            self.captions: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def number_input(self, label, **kwargs):
+            self.number_labels.append(str(label))
+            assert label != "Target positive examples"
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            if label == "Positive sample source":
+                return "Import existing folder"
+            if label == "Negative sample source":
+                return "Record with microphone"
+            return kwargs["options"][kwargs["index"]]
 
         def text_input(self, label, **kwargs):
             self.text_labels.append(label)
@@ -350,8 +1095,138 @@ def test_recording_step_can_choose_existing_positive_sample_folder(tmp_path):
     updated = dashboard._render_recording_step(fake, cfg)
 
     assert fake.text_labels == ["Existing positive sample folder"]
-    assert updated.record_positives == 12
+    assert fake.number_labels == ["Target negative recordings", "Seconds per take"]
+    assert any("Found 2 existing wake-phrase audio files" in caption for caption in fake.captions)
+    assert updated.record_positives == 2
     assert updated.sample_source_dir == str(source)
+
+
+def test_recording_step_can_choose_existing_negative_sample_folder(tmp_path):
+    negative_source = tmp_path / "existing negatives"
+    _touch_wav(negative_source / "room_noise_0001.wav")
+    _touch_wav(negative_source / "nested" / "speech_0002.ogg")
+    (negative_source / "notes.txt").write_text("not audio")
+
+    class FakeSt:
+        def __init__(self):
+            self.text_labels: list[str] = []
+            self.number_labels: list[str] = []
+            self.select_labels: list[str] = []
+            self.captions: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def number_input(self, label, **kwargs):
+            self.number_labels.append(str(label))
+            assert label != "Target negative recordings"
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            self.select_labels.append(str(label))
+            if label == "Positive sample source":
+                return "Record with microphone"
+            if label == "Negative sample source":
+                return "Import existing folder"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(str(label))
+            assert kwargs["help"].startswith("Folder containing existing non-wakeword")
+            return str(negative_source)
+
+        def toggle(self, *_args, **_kwargs):
+            raise AssertionError("augmentation parameters leaked into recording step")
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+
+    updated = dashboard._render_recording_step(fake, cfg)
+
+    assert fake.select_labels == ["Positive sample source", "Negative sample source"]
+    assert fake.text_labels == ["Existing negative sample folder"]
+    assert fake.number_labels == ["Target positive examples", "Seconds per take"]
+    assert any("Found 2 existing negative audio files" in caption for caption in fake.captions)
+    assert updated.record_negatives == 2
+    assert updated.negative_source_dir == str(negative_source)
+
+
+def test_recording_step_hides_seconds_per_take_when_both_sources_are_imported(tmp_path):
+    positive_source = tmp_path / "existing positives"
+    negative_source = tmp_path / "existing negatives"
+    _touch_wav(positive_source / "okay_hermes_0001.wav")
+    _touch_wav(negative_source / "room_noise_0001.wav")
+
+    class FakeSt:
+        def __init__(self):
+            self.text_labels: list[str] = []
+            self.number_labels: list[str] = []
+            self.select_labels: list[str] = []
+            self.captions: list[str] = []
+
+        def subheader(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, text, **_kwargs):
+            self.captions.append(str(text))
+
+        def number_input(self, label, **kwargs):
+            self.number_labels.append(str(label))
+            return kwargs["value"]
+
+        def selectbox(self, label, **kwargs):
+            self.select_labels.append(str(label))
+            if label in {"Positive sample source", "Negative sample source"}:
+                return "Import existing folder"
+            return kwargs["options"][kwargs["index"]]
+
+        def text_input(self, label, **kwargs):
+            self.text_labels.append(str(label))
+            if label == "Existing positive sample folder":
+                return str(positive_source)
+            if label == "Existing negative sample folder":
+                return str(negative_source)
+            return kwargs.get("value", "")
+
+        def toggle(self, *_args, **_kwargs):
+            raise AssertionError("augmentation parameters leaked into recording step")
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def columns(self, count):
+            return [self for _ in range(count)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    fake = FakeSt()
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path), record_duration=5.25)
+
+    updated = dashboard._render_recording_step(fake, cfg)
+
+    assert fake.select_labels == ["Positive sample source", "Negative sample source"]
+    assert fake.text_labels == ["Existing positive sample folder", "Existing negative sample folder"]
+    assert fake.number_labels == []
+    assert updated.record_duration == 5.25
 
 
 class CaptureFakeSt:
@@ -428,6 +1303,9 @@ def test_default_wizard_starts_on_intro_until_user_begins(tmp_path):
     fake.session_state[dashboard.DASHBOARD_STEP_KEY] = "workspace"
     assert dashboard._current_wizard_step(fake, status) == "workspace"
 
+    fake.session_state[dashboard.DASHBOARD_STEP_KEY] = "phrase"
+    assert dashboard._current_wizard_step(fake, status) == "phrase"
+
 
 def test_intro_step_renders_title_card_and_begin_button(tmp_path):
     cfg = ForgeConfig(project_dir=str(tmp_path))
@@ -438,9 +1316,231 @@ def test_intro_step_renders_title_card_and_begin_button(tmp_path):
     rendered = "\n".join(fake.markdowns + fake.buttons)
     assert "Train the trigger. Keep the voice." in rendered
     assert "Begin" in fake.buttons
-    assert fake.button_kwargs["Begin"]["type"] == "secondary"
+    assert fake.button_kwargs["Begin"]["type"] == "primary"
     assert fake.session_state[dashboard.DASHBOARD_STEP_KEY] == "workspace"
     assert fake.session_state["rerun_requested"] is True
+
+
+def test_step_back_navigation_moves_to_previous_step_and_clears_capture_replay():
+    fake = CaptureFakeSt(pressed={"Back"})
+    fake.session_state[dashboard.DASHBOARD_STEP_KEY] = "capture"
+    fake.session_state[dashboard.LAST_CAPTURED_TAKE_KEY] = {"path": "old.wav"}
+
+    dashboard._render_step_back_navigation(fake, "capture")
+
+    assert "Back" in fake.buttons
+    assert fake.session_state[dashboard.DASHBOARD_STEP_KEY] == "augmentation"
+    assert dashboard.LAST_CAPTURED_TAKE_KEY not in fake.session_state
+    assert fake.session_state["rerun_requested"] is True
+
+
+def test_wizard_action_row_places_gray_back_next_to_blue_primary_action():
+    fake = CaptureFakeSt()
+
+    pressed = dashboard._render_wizard_action_row(fake, "recording", "Confirm recording plan")
+
+    assert pressed is False
+    assert fake.buttons[-2:] == ["Back", "Confirm recording plan"]
+    assert fake.button_kwargs["Back"]["type"] == "secondary"
+    assert fake.button_kwargs["Confirm recording plan"]["type"] == "primary"
+    assert fake.button_kwargs["Back"]["use_container_width"] is True
+    assert fake.button_kwargs["Confirm recording plan"]["use_container_width"] is True
+
+
+def test_step_change_invalidates_downstream_checkpoints_only_when_values_changed(tmp_path):
+    reviewed = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path),
+        sample_review_approved=True,
+        generated_review_approved=True,
+        sample_review_fingerprint="samples123",
+        generated_review_fingerprint="generated123",
+        trained_sample_fingerprint="training123",
+        trained_eer=0.12,
+        quality_check_passed=True,
+        model_accepted=True,
+        quality_checked_model_path="/tmp/model.onnx",
+        quality_checked_model_fingerprint="quality123",
+        accepted_model_fingerprint="accepted123",
+        quality_positive_hits=3,
+        quality_positive_trials=3,
+        quality_false_triggers=0,
+        quality_score_min=0.7,
+        quality_score_max=0.9,
+    )
+
+    unchanged = dashboard._apply_step_change_invalidations(reviewed, replace(reviewed), "phrase")
+    changed = dashboard._apply_step_change_invalidations(
+        reviewed,
+        replace(reviewed, wake_phrase="Computer"),
+        "phrase",
+    )
+
+    assert unchanged.sample_review_approved is True
+    assert unchanged.generated_review_approved is True
+    assert unchanged.quality_check_passed is True
+    assert unchanged.model_accepted is True
+    assert changed.sample_review_approved is False
+    assert changed.sample_review_fingerprint == ""
+    assert changed.generated_review_approved is False
+    assert changed.generated_review_fingerprint == ""
+    assert changed.trained_sample_fingerprint == ""
+    assert changed.trained_eer is None
+    assert changed.quality_check_passed is False
+    assert changed.model_accepted is False
+    assert changed.quality_checked_model_path == ""
+    assert changed.quality_checked_model_fingerprint == ""
+    assert changed.accepted_model_fingerprint == ""
+    assert changed.quality_positive_hits == 0
+    assert changed.quality_positive_trials == 0
+
+
+def test_augmentation_plan_change_keeps_sample_review_but_invalidates_generated_and_training(tmp_path):
+    reviewed = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path),
+        sample_review_approved=True,
+        generated_review_approved=True,
+        sample_review_fingerprint="samples123",
+        generated_review_fingerprint="generated123",
+        trained_sample_fingerprint="training123",
+        trained_eer=0.12,
+        quality_check_passed=True,
+        model_accepted=True,
+        quality_checked_model_path="/tmp/model.onnx",
+        quality_checked_model_fingerprint="quality123",
+        accepted_model_fingerprint="accepted123",
+    )
+
+    changed = dashboard._apply_step_change_invalidations(
+        reviewed,
+        replace(reviewed, tts_engine="kokoro"),
+        "augmentation",
+    )
+
+    assert changed.sample_review_approved is True
+    assert changed.sample_review_fingerprint == "samples123"
+    assert changed.generated_review_approved is False
+    assert changed.generated_review_fingerprint == ""
+    assert changed.trained_sample_fingerprint == ""
+    assert changed.quality_check_passed is False
+    assert changed.model_accepted is False
+
+
+def test_intro_cards_have_equal_height_layout_css():
+    css = dashboard._css()
+
+    assert ".forge-card" in css
+    assert "box-sizing: border-box;" in css
+    assert "height: 9.5rem;" in css
+    assert "display: flex;" in css
+    assert "flex-direction: column;" in css
+    assert "forge-card-grid" in css
+
+
+def test_intro_card_html_is_not_markdown_indented_code():
+    card = dashboard._card("Guided", "Wizard", "One decision at a time, then explicit review.")
+
+    assert card.startswith('<div class="forge-card">')
+    assert "\n    <div" not in card
+    assert card.endswith("</div>")
+
+
+def test_step_guidance_is_compact_and_neutral():
+    fake = CaptureFakeSt()
+
+    dashboard._render_step_guidance(fake, "phrase")
+
+    rendered = "\n".join(fake.captions + fake.markdowns)
+    assert "Use one primary phrase" in rendered
+    assert "forge-guide-card" not in rendered
+    assert "Next move" not in rendered
+    assert "What" not in rendered
+    assert "Why" not in rendered
+
+
+def test_dashboard_css_removes_gap_between_source_selectbox_and_active_data_card():
+    css = dashboard._css()
+
+    assert ".forge-data-source-card" in css
+    assert "margin: -0.25rem 0 0.65rem;" in css
+
+
+def test_dashboard_css_uses_blue_for_primary_actions_and_amber_only_for_state():
+    css = dashboard._css()
+
+    assert "--forge-primary" in css
+    assert "#58c7ff" in css
+    assert "button[kind=\"primary\"]" in css
+    assert "linear-gradient(135deg, var(--forge-primary)" in css
+    assert "button[kind=\"secondary\"]" in css
+    assert "background: rgba(255, 242, 223, 0.06);" in css
+    assert "forge-step-active" in css
+    assert "var(--forge-active)" in css
+    assert "forge-next-action" not in css
+
+
+def test_dashboard_dark_theme_forces_readable_main_text_and_inputs():
+    css = dashboard._css()
+
+    assert ".stApp {" in css
+    assert "color: var(--forge-text);" in css
+    assert "[data-testid=\"stSidebar\"]" in css
+    assert "[data-testid=\"stSidebar\"] *" in css
+    assert "[data-testid=\"stWidgetLabel\"]" in css
+    assert "[data-testid=\"stTextInput\"] input" in css
+    assert "background: rgba(17, 19, 23, 0.82);" in css
+    assert "caret-color: var(--forge-primary);" in css
+
+
+def test_dashboard_css_styles_streamlit_toggles_blue_when_checked():
+    css = dashboard._css()
+
+    assert "label[data-baseweb=\"checkbox\"]:has(input:checked) > div:first-child" in css
+    assert "background: var(--forge-primary-strong) !important;" in css
+    assert "border-color: var(--forge-primary-strong) !important;" in css
+    assert "label[data-baseweb=\"checkbox\"]:has(input:focus-visible) > div:first-child" in css
+
+
+def test_dashboard_css_applies_same_blue_outline_to_baseweb_inputs_and_selects():
+    css = dashboard._css()
+
+    assert 'div[data-baseweb="input"],' in css
+    assert 'div[data-baseweb="select"]' in css
+    assert "border-color: rgba(88, 199, 255, 0.24)" in css
+    assert 'div[data-baseweb="input"]:focus-within' in css
+    assert 'div[data-baseweb="select"]:focus-within' in css
+    assert "box-shadow: 0 0 0 0.14rem rgba(88, 199, 255, 0.32)" in css
+
+
+def test_dashboard_css_forces_baseweb_select_inner_surface_dark():
+    css = dashboard._css()
+
+    assert 'div[data-baseweb="select"] > div {' in css
+    assert "background: rgba(17, 19, 23, 0.82) !important;" in css
+    assert 'div[data-baseweb="select"] [role="combobox"]' in css
+
+
+def test_dashboard_css_forces_number_input_inner_surfaces_dark():
+    css = dashboard._css()
+
+    assert 'div[data-baseweb="input"] [data-baseweb="base-input"]' in css
+    assert '[data-testid="stNumberInputStepDown"]' in css
+    assert '[data-testid="stNumberInputStepUp"]' in css
+    assert "background: rgba(17, 19, 23, 0.82) !important;" in css
+    assert "color: var(--forge-text) !important;" in css
+
+
+def test_current_step_renderer_does_not_emit_redundant_next_move_card(tmp_path):
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+    status = inspect_project(cfg)
+    fake = CaptureFakeSt()
+
+    dashboard._render_current_wizard_step(fake, cfg, status, "done")
+
+    rendered = "\n".join(fake.markdowns + fake.captions)
+    assert "Next move" not in rendered
+    assert "forge-next-action" not in rendered
 
 
 def test_update_notice_warns_when_github_has_new_commits():
@@ -690,6 +1790,64 @@ def test_capture_step_disables_import_when_existing_folder_is_missing(tmp_path):
     assert any("Existing positive sample folder is not available" in caption for caption in fake.captions)
 
 
+def test_capture_step_imports_existing_negative_samples_instead_of_recording(monkeypatch, tmp_path):
+    source = tmp_path / "existing negatives"
+    source.mkdir()
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path / "project"),
+        record_positives=3,
+        record_negatives=4,
+        negative_source_dir=str(source),
+    )
+    for i in range(3):
+        _touch_wav(cfg.positives_path / f"take_{i:04d}.wav")
+    _touch_wav(cfg.negatives_path / "neg_0000.wav")
+    status = inspect_project(cfg)
+    calls: list[tuple[ForgeConfig, Path, int]] = []
+
+    class Result:
+        imported_count = 3
+        available_count = 5
+        skipped_paths = ()
+        imported_paths = [cfg.negatives_path / f"external_neg_{i:04d}.wav" for i in range(3)]
+
+    def fake_import_negative_audio(config: ForgeConfig, *, source_dir: Path, kind: str, limit: int, **kwargs):
+        calls.append((config, source_dir, limit))
+        assert kind == "background"
+        return Result()
+
+    monkeypatch.setattr(dashboard, "import_negative_audio", fake_import_negative_audio)
+    fake = CaptureFakeSt(pressed={"Import 3 existing negative samples"})
+
+    dashboard._render_capture_step(fake, cfg, status)
+
+    assert "Record counter-example take 2 of 4" not in fake.buttons
+    assert calls == [(cfg, source, 3)]
+    assert any("Imported 3 existing negative samples" in message for message in fake.successes)
+    assert fake.session_state["rerun_requested"] is True
+
+
+def test_capture_step_disables_negative_import_when_existing_folder_is_missing(tmp_path):
+    cfg = ForgeConfig(
+        wake_phrase="Hey Nova",
+        project_dir=str(tmp_path / "project"),
+        record_positives=3,
+        record_negatives=4,
+        negative_source_dir=str(tmp_path / "missing"),
+    )
+    for i in range(3):
+        _touch_wav(cfg.positives_path / f"take_{i:04d}.wav")
+    status = inspect_project(cfg)
+    fake = CaptureFakeSt()
+
+    dashboard._render_capture_step(fake, cfg, status)
+
+    assert "Import 4 existing negative samples" in fake.buttons
+    assert fake.button_kwargs["Import 4 existing negative samples"]["disabled"] is True
+    assert any("Existing negative sample folder is not available" in caption for caption in fake.captions)
+
+
 def test_capture_step_shows_visible_generation_targets_after_required_takes(tmp_path):
     cfg = ForgeConfig(
         wake_phrase="Hey Nova",
@@ -774,7 +1932,28 @@ def test_start_over_controls_require_confirmation_before_wiping(tmp_path):
     dashboard._render_start_over_controls(fake, cfg)
 
     assert "I understand this deletes local samples, generated audio, model output, and config" in fake.checkboxes
-    assert fake.button_kwargs["Wipe configs and start from scratch"]["disabled"] is True
+    assert fake.button_kwargs["Wipe local project data"]["disabled"] is True
+
+
+def test_dashboard_progress_reset_clears_wizard_state_without_wiping(monkeypatch):
+    calls: list[ForgeConfig] = []
+
+    def fake_reset_project(config: ForgeConfig):
+        calls.append(config)
+        return []
+
+    monkeypatch.setattr(dashboard, "reset_project", fake_reset_project)
+    fake = ResetFakeSt(checked=False, pressed={"Reset dashboard progress"})
+    fake.session_state[dashboard.DASHBOARD_STEP_KEY] = "capture"
+    fake.session_state[dashboard.LAST_CAPTURED_TAKE_KEY] = {"path": "old.wav"}
+
+    dashboard._render_dashboard_progress_reset(fake)
+
+    assert calls == []
+    assert dashboard.DASHBOARD_STEP_KEY not in fake.session_state
+    assert dashboard.LAST_CAPTURED_TAKE_KEY not in fake.session_state
+    assert "Project files were not deleted" in fake.session_state[dashboard.RESET_MESSAGE_KEY]
+    assert fake.session_state["rerun_requested"] is True
 
 
 def test_start_over_controls_wipe_project_and_clear_dashboard_state(monkeypatch, tmp_path):
@@ -786,7 +1965,7 @@ def test_start_over_controls_wipe_project_and_clear_dashboard_state(monkeypatch,
         return [config.project_path / "forge_config.json", config.samples_path]
 
     monkeypatch.setattr(dashboard, "reset_project", fake_reset_project)
-    fake = ResetFakeSt(checked=True, pressed={"Wipe configs and start from scratch"})
+    fake = ResetFakeSt(checked=True, pressed={"Wipe local project data"})
     fake.session_state[dashboard.DASHBOARD_STEP_KEY] = "capture"
     fake.session_state[dashboard.LAST_CAPTURED_TAKE_KEY] = {"path": "old.wav"}
 
@@ -856,13 +2035,15 @@ def test_sidebar_progress_tracks_workflow_without_settings_inputs(tmp_path):
     dashboard._render_progress_sidebar(FakeSt(), status)
 
     rendered = "\n".join(str(arg) for _name, args, _kwargs in FakeSt.sidebar.calls for arg in args)
-    assert "Progress" in rendered
-    assert "Next step" in rendered
+    assert "Progress" not in rendered
+    assert "Next step" not in rendered
+    assert "Run checklist" in rendered
     assert "Start" in rendered
-    assert "1. Name the trigger" in rendered
-    assert "4. Capture examples" in rendered
-    assert "5. Review samples" in rendered
-    assert "6. Train and test" in rendered
+    assert "1. Project folder" in rendered
+    assert "2. Wake phrase" in rendered
+    assert "5. Capture examples" in rendered
+    assert "6. Review samples" in rendered
+    assert "7. Train and test" in rendered
     assert "forge-step-box" in rendered
     assert "forge-step-active" in rendered
     assert "forge-step-pending" in rendered

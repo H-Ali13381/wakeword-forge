@@ -29,6 +29,7 @@ wakeword_projects/
 # Dev artifacts (benchmark runs and debug scripts)
 benchmark_results/
 check_db.py
+idea_docs/
 
 # Worktrees
 .worktrees/
