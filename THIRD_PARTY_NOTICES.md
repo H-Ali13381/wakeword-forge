@@ -35,4 +35,4 @@ For any release that vendors dependencies, publishes prebuilt model artifacts, o
 
 ## User-generated artifacts
 
-User recordings, generated audio, exported ONNX models, and `config.json` files belong to the user who created them, subject to third-party package/model/dataset/TTS terms and the rights of any recorded speakers.
+User recordings, generated audio, exported ONNX models, and `wakeword.json` metadata files belong to the user who created them, subject to third-party package/model/dataset/TTS terms and the rights of any recorded speakers.

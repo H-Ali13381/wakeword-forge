@@ -19,6 +19,6 @@ By default, a trained project may contain:
 
 - `samples/` with user recordings and generated examples.
 - `output/wakeword.onnx` with the trained detector.
-- `output/config.json` with threshold and preprocessing metadata.
+- `output/wakeword.json` with threshold and preprocessing metadata.
 
 These paths are intended to stay local unless the user deliberately packages and publishes them with provenance metadata.

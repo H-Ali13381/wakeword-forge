@@ -8,7 +8,7 @@ flowchart LR
     TRAIN["Train/export<br/><b>run_training → WavLMRepCNNTrainer</b><br/>WavLM teacher → RepCNN ONNX"]
     QC["Live quality gate<br/><b>quality-check</b><br/>hits • false triggers • score range"]
     ACCEPT["Acceptance gate<br/><b>accept-model</b><br/>approval bound to model hash"]
-    OUT["Runtime artifacts<br/><b>wakeword.onnx</b><br/>config.json • threshold • metadata"]
+    OUT["Runtime artifacts<br/><b>wakeword.onnx</b><br/>wakeword.json • threshold • metadata"]
     USE["Use it<br/><b>local voice app</b><br/>live mic test / embedded runtime"]
     QA["Release hygiene<br/><b>make check</b><br/>pytest • ruff • public scan"]
 

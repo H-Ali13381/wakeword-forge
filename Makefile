@@ -16,10 +16,10 @@ NEG_STRATIFY_BY ?= category
 NEG_LIMIT_PER_SOURCE ?= 100
 NEG_MAX_CHUNKS_PER_FILE ?= 20
 NEG_CHUNK_DURATION ?= 3.0
-AUGMENTATION ?= --augmentation
-AUGMENTATION_PRESET ?= standard
-REGULAR_NEGATIVE_PRESET ?= light
-SPECTROGRAM_AUGMENTATION ?= --no-spectrogram-augmentation
+AUGMENTATION ?=
+AUGMENTATION_PRESET ?=
+REGULAR_NEGATIVE_PRESET ?=
+SPECTROGRAM_AUGMENTATION ?=
 AUGMENTATION_NOISE_DIR ?=
 AUGMENTATION_IR_DIR ?=
 AUGMENTATION_SHORT_NOISE_DIR ?=
@@ -106,7 +106,7 @@ audit: install
 
 ## Training only (uses existing samples in DIR).
 train: install
-	$(FORGE) train --dir "$(DIR)" --backend wavlm-repcnn $(AUGMENTATION) --augmentation-preset "$(AUGMENTATION_PRESET)" --regular-negative-preset "$(REGULAR_NEGATIVE_PRESET)" $(SPECTROGRAM_AUGMENTATION) $(if $(AUGMENTATION_NOISE_DIR),--augmentation-noise-dir "$(AUGMENTATION_NOISE_DIR)") $(if $(AUGMENTATION_IR_DIR),--augmentation-ir-dir "$(AUGMENTATION_IR_DIR)") $(if $(AUGMENTATION_SHORT_NOISE_DIR),--augmentation-short-noise-dir "$(AUGMENTATION_SHORT_NOISE_DIR)") $(if $(AUGMENTATION_TRUCK_NOISE_DIR),--augmentation-truck-noise-dir "$(AUGMENTATION_TRUCK_NOISE_DIR)")
+	$(FORGE) train --dir "$(DIR)" --backend wavlm-repcnn $(AUGMENTATION) $(if $(AUGMENTATION_PRESET),--augmentation-preset "$(AUGMENTATION_PRESET)") $(if $(REGULAR_NEGATIVE_PRESET),--regular-negative-preset "$(REGULAR_NEGATIVE_PRESET)") $(SPECTROGRAM_AUGMENTATION) $(if $(AUGMENTATION_NOISE_DIR),--augmentation-noise-dir "$(AUGMENTATION_NOISE_DIR)") $(if $(AUGMENTATION_IR_DIR),--augmentation-ir-dir "$(AUGMENTATION_IR_DIR)") $(if $(AUGMENTATION_SHORT_NOISE_DIR),--augmentation-short-noise-dir "$(AUGMENTATION_SHORT_NOISE_DIR)") $(if $(AUGMENTATION_TRUCK_NOISE_DIR),--augmentation-truck-noise-dir "$(AUGMENTATION_TRUCK_NOISE_DIR)")
 
 ## Guided live quality checkpoint for a trained model.
 quality-check: install
@@ -159,7 +159,8 @@ help:
 	@printf "  make import-negatives NEG_MANIFEST=... Import capped external negatives\n"
 	@printf "  make review DIR=...              Review/approve recorded samples\n"
 	@printf "  make audit DIR=...               Audit generated clips\n"
-	@printf "  make train DIR=... AUGMENTATION_PRESET=standard|light  Train/export ONNX\n"
+	@printf "  make train DIR=...              Train/export ONNX using saved config\n"
+	@printf "    overrides: AUGMENTATION=--no-augmentation AUGMENTATION_PRESET=light REGULAR_NEGATIVE_PRESET=none\n"
 	@printf "  make quality-check DIR=...       Guided live quality check\n"
 	@printf "  make accept-model DIR=...        Accept checked model\n"
 	@printf "  make qwentts-build               Build Dockerized QwenTTS runner\n"

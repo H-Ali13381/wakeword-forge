@@ -52,3 +52,30 @@ def test_public_release_tree_has_no_bundled_runtime_artifacts():
             hits.append(str(rel))
 
     assert hits == []
+
+
+def test_public_docs_use_exported_runtime_metadata_filename():
+    """Docs should match the sidecar written next to output/wakeword.onnx."""
+
+    docs = [
+        ROOT / "README.md",
+        ROOT / "docs" / "advanced-usage.md",
+        ROOT / "DATA_PROVENANCE.md",
+        ROOT / "SECURITY.md",
+        ROOT / "THIRD_PARTY_NOTICES.md",
+        ROOT / "docs" / "architecture.md",
+        ROOT / "docs" / "architecture.mmd",
+    ]
+    stale_mentions = []
+    for path in docs:
+        text = path.read_text(encoding="utf-8")
+        stale_runtime_names = (
+            "output/config.json",
+            "config.json • threshold • metadata",
+            "`config.json`",
+        )
+        if any(name in text for name in stale_runtime_names):
+            stale_mentions.append(str(path.relative_to(ROOT)))
+
+    assert stale_mentions == []
+    assert "output/wakeword.json" in (ROOT / "README.md").read_text(encoding="utf-8")

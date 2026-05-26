@@ -13,7 +13,7 @@ wakeword-forge is designed for auditable local wake-word training. Voice recordi
 - `samples/confusables/`: optional confusable hard negatives.
 - `samples/cloned_review/`: optional QwenTTS voice-cloned clips waiting for human positive/negative/unusable review.
 - `output/wakeword.onnx`: exported detector.
-- `output/config.json`: preprocessing, threshold, and runtime metadata.
+- `output/wakeword.json`: preprocessing, threshold, and runtime metadata.
 
 These files are not uploaded by default.
 

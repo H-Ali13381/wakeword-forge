@@ -26,10 +26,24 @@ Requires Git, Python 3.10+, `make`, and a microphone. Run commands from the repo
 ```bash
 git clone https://github.com/H-Ali13381/wakeword-forge.git
 cd wakeword-forge
+```
+
+Choose one install path:
+
+**Standard install** — dashboard plus lightweight local TTS backends:
+
+```bash
 make start DIR=./projects/default
 ```
 
-`DIR` is your local wake-word project folder. The default `./projects/default` workspace stays inside the checkout but is ignored by git. It will contain `samples/`, `output/wakeword.onnx`, and `output/config.json`.
+**Full install** — includes QwenTTS; recommended for users with CUDA-compatible NVIDIA hardware:
+
+```bash
+make install-qwentts
+make start DIR=./projects/default
+```
+
+`DIR` is your local wake-word project folder. The default `./projects/default` workspace stays inside the checkout but is ignored by git. It will contain `samples/`, `output/wakeword.onnx`, and `output/wakeword.json`.
 
 Name map: the repo and CLI are named `wakeword-forge`; source code lives in `forge/`; your local training workspace is whatever `DIR=...` points at.
 
@@ -60,7 +74,7 @@ A reproducible local pipeline that goes from your voice to a deployable runtime 
 | Exported model size | **217 KB** ONNX file |
 | Inference latency | **~15 ms** per 3 s clip on CPU |
 | Audio frontend | 16 kHz mono, 40-mel log-mel, 25 ms / 10 ms |
-| FAR operating point | 1 % false-accept budget, threshold + EER stored in `config.json` |
+| FAR operating point | 1 % false-accept budget, threshold + EER stored in `wakeword.json` |
 | Minimum data to train | 10 positives, 5 negatives, 150 background, 100 partials (multi-word) |
 
 The 94 M-parameter teacher is discarded after distillation. The 40 K-parameter student ships.
@@ -104,14 +118,14 @@ The dashboard enforces the order. Each review gate is fingerprinted against the 
 After `make train`, your project directory has:
 
 - `output/wakeword.onnx` — RepCNN detector, input `waveform` (float32, 16 kHz mono, up to 3 s), output `score` (0–1)
-- `output/config.json` — threshold, sample rate (16000), mel settings (40 mel, 25 ms / 10 ms), EER
+- `output/wakeword.json` — threshold, sample rate (16000), mel settings (40 mel, 25 ms / 10 ms), EER
 
 Run it with onnxruntime:
 
 ```python
 import json, numpy as np, onnxruntime as ort
 
-cfg = json.load(open("output/config.json"))
+cfg = json.load(open("output/wakeword.json"))
 sess = ort.InferenceSession("output/wakeword.onnx")
 # audio_16khz_f32: mono float32 NumPy array, resampled to 16 kHz, up to 3 seconds
 score = sess.run(None, {"waveform": audio_16khz_f32[None, :]})[0]

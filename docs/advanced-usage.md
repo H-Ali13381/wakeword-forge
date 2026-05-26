@@ -106,7 +106,7 @@ It uses training-time acoustic augmentation by default. Reviewed clips can be va
 After training, the project directory contains:
 
 - `output/wakeword.onnx`: ONNX detector with input `waveform` and output `score`
-- `output/config.json`: threshold, sample rate, mel settings, backend, and metadata
+- `output/wakeword.json`: threshold, sample rate, mel settings, backend, and metadata
 - `samples/`: local recordings, imports, and generated clips used for training
 
 The WavLM teacher is training-only. It is not included in the exported ONNX graph.
