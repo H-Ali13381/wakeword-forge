@@ -926,8 +926,8 @@ def _format_markdown_path(path: Path) -> str:
     return f"`{escaped}`"
 
 
-def _format_markdown_path_list(paths: Sequence[tuple[str, Path]]) -> str:
-    lines = ["**Target folders:**"]
+def _format_markdown_path_list(paths: Sequence[tuple[str, Path]], *, heading: str | None = "**Target folders:**") -> str:
+    lines = [heading] if heading else []
     for label, path in paths:
         lines.append(f"- **{label}:**\n  {_format_markdown_path(path)}")
     return "\n".join(lines)
@@ -1154,7 +1154,7 @@ def _render_recommended_open_data_confirmation(st, config: ForgeConfig, recommen
             st.rerun()
     with confirm_col:
         confirmed = st.button(
-            "Confirm and download recommended data",
+            "Confirm",
             type="primary",
             disabled=not accepted,
             use_container_width=True,
@@ -1228,7 +1228,8 @@ def _render_recommended_advanced_acoustic_confirmation(
                 ("Room impulses", recommended_dirs["ir"]),
                 ("Short transients", recommended_dirs["short_noise"]),
                 ("Low-frequency rumble", recommended_dirs["low_frequency"]),
-            )
+            ),
+            heading=None,
         )
     )
     accepted = st.checkbox(
@@ -1242,7 +1243,7 @@ def _render_recommended_advanced_acoustic_confirmation(
             st.rerun()
     with confirm_col:
         confirmed = st.button(
-            "Confirm and install recommended acoustic data",
+            "Confirm",
             type="primary",
             disabled=not accepted,
             use_container_width=True,

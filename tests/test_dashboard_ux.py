@@ -709,8 +709,12 @@ def test_augmentation_step_opens_recommended_advanced_acoustic_confirmation_in_m
     assert fake.session_state[dashboard.ADVANCED_DATA_CONFIRM_KEY] is True
     assert fake.dialog_titles == ["Import recommended advanced acoustic data"]
     rendered_modal = "\n".join(fake.markdowns + fake.warnings + fake.checkboxes + fake.buttons + fake.captions)
+    caption_text = "\n".join(fake.captions)
     assert "Recommended advanced acoustic data may include" in rendered_modal
-    assert "Confirm and install recommended acoustic data" in fake.buttons
+    assert "Confirm" in fake.buttons
+    assert "Confirm and install recommended acoustic data" not in fake.buttons
+    assert "Import targets:\n" in caption_text
+    assert "Import targets:\n**Target folders:**" not in caption_text
     assert selected_dirs["ir"] == str(dashboard._recommended_advanced_acoustic_dirs(cfg)["ir"])
 
 
@@ -771,7 +775,7 @@ def test_augmentation_step_installs_recommended_advanced_acoustic_data_with_prog
             return True
 
         def button(self, label, **_kwargs):
-            return label == "Confirm and install recommended acoustic data"
+            return label == "Confirm"
 
         def progress(self, value, *, text=""):
             self.progress_updates.append((value, text))
@@ -952,7 +956,8 @@ def test_augmentation_step_requires_license_confirmation_before_downloading_reco
     dashboard._render_augmentation_step(fake, cfg)
 
     assert any("license" in label.lower() for label in fake.checkboxes)
-    assert fake.button_kwargs["Confirm and download recommended data"]["disabled"] is True
+    assert fake.button_kwargs["Confirm"]["disabled"] is True
+    assert "Confirm and download recommended data" not in fake.button_kwargs
 
 
 def test_augmentation_step_opens_recommended_data_confirmation_in_modal(tmp_path):
@@ -1012,7 +1017,8 @@ def test_augmentation_step_opens_recommended_data_confirmation_in_modal(tmp_path
     assert fake.dialog_titles == ["Import recommended open-source data"]
     rendered_modal = "\n".join(fake.markdowns + fake.warnings + fake.checkboxes + fake.buttons)
     assert "Recommended open-source data may include" in rendered_modal
-    assert "Confirm and download recommended data" in fake.buttons
+    assert "Confirm" in fake.buttons
+    assert "Confirm and download recommended data" not in fake.buttons
 
 
 def test_augmentation_step_formats_missing_background_data_path_for_readability(tmp_path):
@@ -1210,7 +1216,7 @@ def test_augmentation_step_downloads_recommended_open_source_data_with_progress(
             return True
 
         def button(self, label, **_kwargs):
-            return label == "Confirm and download recommended data"
+            return label == "Confirm"
 
         def progress(self, value, *, text=""):
             self.progress_updates.append((value, text))
