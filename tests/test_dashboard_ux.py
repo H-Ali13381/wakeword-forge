@@ -642,6 +642,11 @@ def test_augmentation_step_can_select_recommended_open_data_for_advanced_folders
     assert "Recommended advanced acoustic data will be installed" not in caption_text
     assert "Recommended acoustic import installs project-local room impulse" in warning_text
     assert "Recommended acoustic import installs project-local room impulse" not in caption_text
+    assert "**Target folders:**" in warning_text
+    assert f"- **Room impulses:**\n  `{dirs['ir']}`" in warning_text
+    assert f"- **Short transients:**\n  `{dirs['short_noise']}`" in warning_text
+    assert f"- **Low-frequency rumble:**\n  `{dirs['low_frequency']}`" in warning_text
+    assert "assets into `" not in warning_text
     assert "Recommended advanced acoustic folders" not in rendered
     assert str(dirs["ir"]) in warning_text
     assert "Import recommended advanced acoustic data" in fake.buttons
@@ -1008,6 +1013,23 @@ def test_augmentation_step_opens_recommended_data_confirmation_in_modal(tmp_path
     rendered_modal = "\n".join(fake.markdowns + fake.warnings + fake.checkboxes + fake.buttons)
     assert "Recommended open-source data may include" in rendered_modal
     assert "Confirm and download recommended data" in fake.buttons
+
+
+def test_augmentation_step_formats_missing_background_data_path_for_readability(tmp_path):
+    cfg = ForgeConfig(wake_phrase="Hey Nova", project_dir=str(tmp_path))
+    recommended_dir = dashboard._recommended_open_data_dir(cfg)
+    cfg = replace(cfg, augmentation_noise_dir=str(recommended_dir))
+    fake = CaptureFakeSt()
+
+    selected_dir = dashboard._render_recommended_open_data_import(fake, cfg)
+
+    warning_text = "\n".join(fake.warnings)
+    assert selected_dir == str(recommended_dir)
+    assert "Recommended background data is selected, but no audio files were found yet." in warning_text
+    assert "**Target folder:**\n" in warning_text
+    assert f"`{recommended_dir}`" in warning_text
+    assert f"in `{recommended_dir}`." not in warning_text
+    assert "Import recommended open-source data" in fake.buttons
 
 
 def test_augmentation_step_makes_imported_recommended_data_state_obvious(tmp_path):

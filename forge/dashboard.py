@@ -921,6 +921,18 @@ def _recommended_advanced_acoustic_dirs(config: ForgeConfig) -> dict[str, Path]:
     }
 
 
+def _format_markdown_path(path: Path) -> str:
+    escaped = str(path).replace("`", "\\`")
+    return f"`{escaped}`"
+
+
+def _format_markdown_path_list(paths: Sequence[tuple[str, Path]]) -> str:
+    lines = ["**Target folders:**"]
+    for label, path in paths:
+        lines.append(f"- **{label}:**\n  {_format_markdown_path(path)}")
+    return "\n".join(lines)
+
+
 def _background_noise_data_mode(config: ForgeConfig) -> str:
     noise_dir = str(config.augmentation_noise_dir).strip()
     if not noise_dir:
@@ -987,15 +999,25 @@ def _render_recommended_advanced_acoustic_status(
     elif is_active or selected:
         st.warning(
             "Recommended advanced acoustic data is selected, but no audio files were found yet. "
-            "Use the import button below to install the project-local acoustic assets into "
-            f"`{recommended_dirs['ir']}`, `{recommended_dirs['short_noise']}`, and "
-            f"`{recommended_dirs['low_frequency']}`."
+            "Use the import button below to install the project-local acoustic assets.\n\n"
+            + _format_markdown_path_list(
+                (
+                    ("Room impulses", recommended_dirs["ir"]),
+                    ("Short transients", recommended_dirs["short_noise"]),
+                    ("Low-frequency rumble", recommended_dirs["low_frequency"]),
+                )
+            )
         )
     else:
         st.caption(
-            "Recommended advanced acoustic data will be installed into "
-            f"`{recommended_dirs['ir']}`, `{recommended_dirs['short_noise']}`, and "
-            f"`{recommended_dirs['low_frequency']}`."
+            "Recommended advanced acoustic data will be installed when selected.\n\n"
+            + _format_markdown_path_list(
+                (
+                    ("Room impulses", recommended_dirs["ir"]),
+                    ("Short transients", recommended_dirs["short_noise"]),
+                    ("Low-frequency rumble", recommended_dirs["low_frequency"]),
+                )
+            )
         )
     return recommended_dirs
 
@@ -1107,16 +1129,20 @@ def _render_recommended_open_data_status(st, config: ForgeConfig, recommended_di
         )
     elif is_active:
         st.warning(
-            f"Recommended background data is selected, but no audio files were found yet in `{recommended_dir}`."
+            "Recommended background data is selected, but no audio files were found yet.\n\n"
+            f"**Target folder:**\n{_format_markdown_path(recommended_dir)}"
         )
     else:
-        st.caption(f"Recommended background data will be stored in `{recommended_dir}`.")
+        st.caption(
+            "Recommended background data will be stored here when selected.\n\n"
+            f"**Target folder:**\n{_format_markdown_path(recommended_dir)}"
+        )
 
 
 def _render_recommended_open_data_confirmation(st, config: ForgeConfig, recommended_dir: Path) -> None:
     st.warning("Confirm the license notice before downloading or generating recommended background data.")
     st.markdown(RECOMMENDED_OPEN_DATA_LICENSE_NOTICE)
-    st.caption(f"Import target: `{recommended_dir}`")
+    st.caption(f"Import target:\n{_format_markdown_path(recommended_dir)}")
     accepted = st.checkbox(
         "I understand the dataset licenses and will verify they fit my use case before redistribution or deployment."
     )
@@ -1196,9 +1222,14 @@ def _render_recommended_advanced_acoustic_confirmation(
     st.warning("Confirm the notice before installing recommended advanced acoustic data.")
     st.markdown(RECOMMENDED_ADVANCED_ACOUSTIC_LICENSE_NOTICE)
     st.caption(
-        "Import targets: "
-        f"`{recommended_dirs['ir']}`, `{recommended_dirs['short_noise']}`, and "
-        f"`{recommended_dirs['low_frequency']}`"
+        "Import targets:\n"
+        + _format_markdown_path_list(
+            (
+                ("Room impulses", recommended_dirs["ir"]),
+                ("Short transients", recommended_dirs["short_noise"]),
+                ("Low-frequency rumble", recommended_dirs["low_frequency"]),
+            )
+        )
     )
     accepted = st.checkbox(
         "I understand what will be installed and will verify any replacement dataset licenses before redistribution or deployment."
