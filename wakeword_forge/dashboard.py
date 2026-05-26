@@ -35,6 +35,13 @@ from wakeword_forge.project import (
 from wakeword_forge.update_check import UpdateRecommendation, check_for_updates
 
 DEFAULT_PROJECT_DIR = Path.cwd() / "projects" / "default"
+TTS_ENGINE_HELP = """TTS means text-to-speech: generated wake-phrase clips used to add voice variety.
+
+- QwenTTS: most natural speech and the recommended choice when you have compatible hardware, but it is slower and needs heavier model dependencies.
+- Kokoro: lighter fallback that is easier to run on typical machines, with less natural prosody.
+- Piper: small offline fallback for fast/local generation; quality is more robotic.
+- none: skip generated speech and train only from recorded/imported samples.
+""".strip()
 
 
 def make_command(
@@ -442,6 +449,7 @@ def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
         if config.tts_engine in set(tts_engine_options)
         else 0,
         disabled=not use_tts,
+        help=TTS_ENGINE_HELP,
     )
 
     st.caption("Training-time acoustic augmentation controls model robustness after samples are reviewed.")

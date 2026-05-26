@@ -2,6 +2,15 @@
 
 All notable changes to wakeword-forge are tracked here.
 
+## [0.1.2] - 2026-05-26
+
+Release URL: https://github.com/H-Ali13381/wakeword-forge/releases/tag/v0.1.2
+
+### Changed
+
+- Added end-user help text to the dashboard TTS engine dropdown explaining the QwenTTS, Kokoro, Piper, and no-TTS tradeoffs.
+- Bumped package, CLI, citation, changelog, and releasing metadata for the v0.1.2 source release.
+
 ## [0.1.1] - 2026-05-25
 
 Release URL: https://github.com/H-Ali13381/wakeword-forge/releases/tag/v0.1.1

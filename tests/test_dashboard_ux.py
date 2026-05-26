@@ -248,6 +248,7 @@ def test_augmentation_step_offers_qwentts_engine(tmp_path):
     class FakeSt:
         def __init__(self):
             self.select_options: dict[str, list[str]] = {}
+            self.select_help: dict[str, str] = {}
             self.text_labels: list[str] = []
 
         def subheader(self, *_args, **_kwargs):
@@ -266,6 +267,7 @@ def test_augmentation_step_offers_qwentts_engine(tmp_path):
 
         def selectbox(self, label, **kwargs):
             self.select_options[str(label)] = list(kwargs["options"])
+            self.select_help[str(label)] = str(kwargs.get("help", ""))
             return kwargs["options"][kwargs["index"]]
 
         def text_input(self, label, **kwargs):
@@ -281,6 +283,13 @@ def test_augmentation_step_offers_qwentts_engine(tmp_path):
     updated = dashboard._render_augmentation_step(fake, cfg)
 
     assert fake.select_options["TTS engine"] == ["qwentts", "kokoro", "piper", "none"]
+    engine_help = fake.select_help["TTS engine"]
+    assert "QwenTTS" in engine_help
+    assert "most natural" in engine_help
+    assert "compatible hardware" in engine_help
+    assert "slower" in engine_help
+    assert "Kokoro" in engine_help
+    assert "Piper" in engine_help
     assert fake.select_options["Training augmentation preset"] == ["standard", "light"]
     assert fake.select_options["Background negative augmentation"] == ["light", "standard", "none"]
     assert fake.text_labels == [
