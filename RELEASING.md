@@ -1,6 +1,6 @@
 # Releasing wakeword-forge
 
-Current package release version: `0.1.2`.
+Current package release version: `0.1.3`.
 
 wakeword-forge source releases are tagged in git and published as GitHub Releases. Trained wake-word ONNX files, generated audio, review packs, private manifests, and benchmark artifacts are not bundled with source releases. Publish model artifacts separately with a model card and provenance record.
 
@@ -23,26 +23,26 @@ Run from the repository root:
 ```bash
 make release-check
 git status --short --branch
-git tag --list "v0.1.2"
+git tag --list "v0.1.3"
 ```
 
 A releasable tree should have only intended source/doc/test changes staged or committed. Do not stage `projects/`, `.venv/`, generated `.wav`, `.onnx`, review packs, or private manifests.
 
-## Create the v0.1.2 source release
+## Create the v0.1.3 source release
 
 After the intended release commit is on `main`:
 
 ```bash
-git tag -a v0.1.2 -m "wakeword-forge v0.1.2"
+git tag -a v0.1.3 -m "wakeword-forge v0.1.3"
 git push origin main
-git push origin v0.1.2
-gh release create v0.1.2 \
-  --title "wakeword-forge v0.1.2" \
+git push origin v0.1.3
+gh release create v0.1.3 \
+  --title "wakeword-forge v0.1.3" \
   --notes-file CHANGELOG.md \
   --verify-tag
 ```
 
-If the release should stay unpublished while you review notes, add `--draft` to the `gh release create v0.1.2` command.
+If the release should stay unpublished while you review notes, add `--draft` to the `gh release create v0.1.3` command.
 
 ## Bumping a future release
 

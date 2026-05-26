@@ -2,6 +2,17 @@
 
 All notable changes to wakeword-forge are tracked here.
 
+## [0.1.3] - 2026-05-26
+
+Release URL: https://github.com/H-Ali13381/wakeword-forge/releases/tag/v0.1.3
+
+### Changed
+
+- Aligned public documentation with the exported runtime metadata sidecar `output/wakeword.json`.
+- Updated `make train` to respect saved augmentation configuration by default while keeping explicit Makefile overrides available.
+- Added README install paths for standard setup and a QwenTTS-enabled full setup for CUDA-compatible hardware.
+- Bumped package, CLI, citation, changelog, and releasing metadata for the v0.1.3 source release.
+
 ## [0.1.2] - 2026-05-26
 
 Release URL: https://github.com/H-Ali13381/wakeword-forge/releases/tag/v0.1.2
