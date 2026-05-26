@@ -26,12 +26,12 @@ Requires Git, Python 3.10+, `make`, and a microphone. Run commands from the repo
 ```bash
 git clone https://github.com/H-Ali13381/wakeword-forge.git
 cd wakeword-forge
-make start DIR=~/wakeword-forge-demo
+make start DIR=./projects/default
 ```
 
-`DIR` is your local wake-word project folder. It will contain `samples/`, `output/wakeword.onnx`, and `output/config.json`.
+`DIR` is your local wake-word project folder. The default `./projects/default` workspace stays inside the checkout but is ignored by git. It will contain `samples/`, `output/wakeword.onnx`, and `output/config.json`.
 
-Terminal-only: `make cli-run DIR=~/wakeword-forge-demo`
+Terminal-only: `make cli-run DIR=./projects/default`
 
 <p align="center">
   <img src="assets/readme-dashboard-preview.png" alt="wakeword-forge Streamlit dashboard with guided workflow, progress rail, and feature cards" width="880">
@@ -117,7 +117,7 @@ if score.item() > cfg["threshold"]:
     print("wake!")
 ```
 
-Or test it on your mic: `make mic-test DIR=~/wakeword-forge-demo`
+Or test it on your mic: `make mic-test DIR=./projects/default`
 
 ## Common commands
 
@@ -125,28 +125,28 @@ Or test it on your mic: `make mic-test DIR=~/wakeword-forge-demo`
 
 | Task | Command |
 | --- | --- |
-| Open dashboard | `make start DIR=~/wakeword-forge-demo` |
-| Terminal wizard | `make cli-run DIR=~/wakeword-forge-demo` |
-| Show status | `make info DIR=~/wakeword-forge-demo` |
+| Open dashboard | `make start DIR=./projects/default` |
+| Terminal wizard | `make cli-run DIR=./projects/default` |
+| Show status | `make info DIR=./projects/default` |
 
 ### Collect and review
 
 | Task | Command |
 | --- | --- |
-| Record positives | `make record DIR=~/wakeword-forge-demo PHRASE='Hey Nova' N=20` |
-| Generate TTS positives | `make synth DIR=~/wakeword-forge-demo PHRASE='Hey Nova' N=300` |
-| Import background negatives | `make import-negatives DIR=~/wakeword-forge-demo NEG_SOURCE_DIR=~/clips NEG_LIMIT=150` |
-| Review samples | `make review DIR=~/wakeword-forge-demo` |
-| Audit generated clips | `make audit DIR=~/wakeword-forge-demo` |
+| Record positives | `make record DIR=./projects/default PHRASE='Hey Nova' N=20` |
+| Generate TTS positives | `make synth DIR=./projects/default PHRASE='Hey Nova' N=300` |
+| Import background negatives | `make import-negatives DIR=./projects/default NEG_SOURCE_DIR=~/clips NEG_LIMIT=150` |
+| Review samples | `make review DIR=./projects/default` |
+| Audit generated clips | `make audit DIR=./projects/default` |
 
 ### Train and use
 
 | Task | Command |
 | --- | --- |
-| Train and export ONNX | `make train DIR=~/wakeword-forge-demo` |
-| Live quality check | `make quality-check DIR=~/wakeword-forge-demo` |
-| Accept the model | `make accept-model DIR=~/wakeword-forge-demo` |
-| Test accepted model on mic input | `make mic-test DIR=~/wakeword-forge-demo` |
+| Train and export ONNX | `make train DIR=./projects/default` |
+| Live quality check | `make quality-check DIR=./projects/default` |
+| Accept the model | `make accept-model DIR=./projects/default` |
+| Test accepted model on mic input | `make mic-test DIR=./projects/default` |
 
 Full reference, negative imports, synthesis backends, and voice-clone staging are in **[docs/advanced-usage.md](docs/advanced-usage.md)**.
 
@@ -154,6 +154,8 @@ Full reference, negative imports, synthesis backends, and voice-clone staging ar
 
 - [docs/advanced-usage.md](docs/advanced-usage.md) — full commands, negative imports, synthesis, training output
 - [docs/architecture.md](docs/architecture.md) — review gates, fingerprinting, ONNX export
+- [CHANGELOG.md](CHANGELOG.md) — source release history
+- [RELEASING.md](RELEASING.md) — source release checklist and tagging commands
 - [DATA_PROVENANCE.md](DATA_PROVENANCE.md) — consent rules and data sources
 - [SECURITY.md](SECURITY.md) — handling private audio
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) · [SUPPORT.md](SUPPORT.md)

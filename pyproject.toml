@@ -1,6 +1,6 @@
 [project]
 name = "wakeword-forge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Train a personal wake-word detector from your own voice — runs on CPU, exports to ONNX."
 authors = [{ name = "Hasan" }]
 readme = "README.md"

@@ -1,7 +1,8 @@
-.PHONY: help start dashboard run cli-run record synth import-negatives review audit train quality-check accept-model mic-test test info install install-dev install-voice install-qwentts qwentts-build qwentts-voice-clone-one review-cloned-samples check clean
+.PHONY: help start dashboard run cli-run record synth import-negatives review audit train quality-check accept-model mic-test test info install install-dev install-voice install-qwentts qwentts-build qwentts-voice-clone-one review-cloned-samples check release-check clean
 
 # Default project directory and action parameters.
-DIR    ?= $(HOME)/wakeword_forge_project
+# Keep generated samples, caches, and model outputs in an ignored repo-local workspace.
+DIR    ?= projects/default
 PHRASE ?= Hey Nova
 N      ?= 20
 ENGINE ?= qwentts
@@ -143,6 +144,9 @@ info: install
 check: install-dev
 	$(PYTHON) -m pytest tests/ -v
 
+release-check: install-dev
+	$(PYTHON) -m pytest tests/test_release_version.py tests/test_public_release_hygiene.py -q
+
 clean:
 	rm -rf $(VENV) __pycache__ .pytest_cache *.egg-info
 
@@ -163,4 +167,5 @@ help:
 	@printf "  make review-cloned-samples       Label cloned samples positive/negative/unusable\n"
 	@printf "  make mic-test DIR=...            Live microphone threshold test\n"
 	@printf "  make info DIR=...                Print project status\n"
+	@printf "  make release-check               Verify version, changelog, and release hygiene\n"
 	@printf "  make check                       Run unit tests\n"

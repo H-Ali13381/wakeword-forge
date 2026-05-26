@@ -91,7 +91,7 @@ For packaged models or generated datasets, include a JSON manifest like:
 
 ## Model cards
 
-Every published demo model should include:
+Every published or shared model should include:
 
 - Wake phrase.
 - Intended use.

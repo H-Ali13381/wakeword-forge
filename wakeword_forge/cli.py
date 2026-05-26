@@ -23,6 +23,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from . import __version__
 from .config import CONFUSABLE_NEGATIVE_TARGET, MIN_NEGATIVES, MIN_POSITIVES
 from .project import (
     background_negative_target,
@@ -39,6 +40,25 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"wakeword-forge {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the wakeword-forge release version and exit.",
+    ),
+) -> None:
+    """Train a personal wake-word detector."""
 
 
 def _rel(path: Path, root: Path) -> str:
@@ -193,7 +213,7 @@ def _apply_training_augmentation_options(
 @app.command()
 def run(
     project_dir: Path = typer.Option(
-        Path.cwd() / "wakeword_project",
+        Path.cwd() / "projects" / "default",
         "--dir", "-d",
         help="Project directory (created if it doesn't exist)",
     ),
@@ -389,7 +409,7 @@ def run(
 @app.command()
 def dashboard(
     project_dir: Path = typer.Option(
-        Path.cwd() / "wakeword_project",
+        Path.cwd() / "projects" / "default",
         "--dir", "-d",
         help="Project directory (created if it doesn't exist)",
     ),
@@ -432,7 +452,7 @@ def synth(
 
 @app.command("review-samples")
 def review_samples(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
     approve: bool = typer.Option(False, "--approve", help="Approve without prompting."),
 ) -> None:
     """Review captured samples and explicitly approve them for training."""
@@ -454,7 +474,7 @@ def review_samples(
 
 @app.command("audit-generated")
 def audit_generated(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
     limit: int = typer.Option(12, "--limit", help="Number of generated clips to spot-check."),
     approve: bool = typer.Option(False, "--approve", help="Approve without prompting."),
 ) -> None:
@@ -476,7 +496,7 @@ def audit_generated(
 
 @app.command("import-negatives")
 def import_negatives(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
     source_dir: Optional[Path] = typer.Option(
         None,
         "--source-dir",
@@ -559,7 +579,7 @@ def import_negatives(
     help="Generate one sample at a time with responsible Dockerized QwenTTS voice cloning.",
 )
 def voice_clone_one(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
     source_manifest: Optional[Path] = typer.Option(
         None,
         "--source-manifest",
@@ -626,7 +646,7 @@ def voice_clone_one(
 
 @app.command("review-cloned-samples")
 def review_cloned_samples(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
     sample: Optional[str] = typer.Option(None, "--sample", help="Pending sample index or path."),
     decision: Optional[str] = typer.Option(
         None,
@@ -697,7 +717,7 @@ def review_cloned_samples(
 
 @app.command("quality-check")
 def quality_check(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
     model: Optional[Path] = typer.Option(None, "--model", "-m"),
     positive_trials: int = typer.Option(5, "--positive-trials"),
     near_miss_trials: int = typer.Option(3, "--near-miss-trials"),
@@ -790,7 +810,7 @@ def quality_check(
 
 @app.command("accept-model")
 def accept_model_command(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
 ) -> None:
     """Accept the current model after a passing guided quality check."""
 
@@ -810,7 +830,7 @@ def accept_model_command(
 
 @app.command()
 def train(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
     backend: str = typer.Option(
         "wavlm-repcnn",
         "--backend",
@@ -957,7 +977,7 @@ def test(
 
 @app.command()
 def info(
-    project_dir: Path = typer.Option(Path.cwd() / "wakeword_project", "--dir", "-d"),
+    project_dir: Path = typer.Option(Path.cwd() / "projects" / "default", "--dir", "-d"),
 ) -> None:
     """Show project status."""
     config = load_or_create_config(project_dir)

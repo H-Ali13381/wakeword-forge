@@ -289,6 +289,9 @@ def test_qwentts_docker_runner_script_is_present_and_job_driven():
     assert dockerfile.exists()
     assert compose.exists()
     text = runner.read_text(encoding="utf-8")
+    compose_text = compose.read_text(encoding="utf-8")
+    assert "../../projects/default" in compose_text
+    assert "${HOME}/wakeword_forge_project" not in compose_text
     assert "--job" in text
     assert "generate_voice_clone" in text or "clone_voice" in text or "generate_custom_voice" in text
     assert "manifest" not in text.lower()

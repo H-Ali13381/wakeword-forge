@@ -34,7 +34,7 @@ from wakeword_forge.project import (
 )
 from wakeword_forge.update_check import UpdateRecommendation, check_for_updates
 
-DEFAULT_PROJECT_DIR = Path.home() / "wakeword_forge_project"
+DEFAULT_PROJECT_DIR = Path.cwd() / "projects" / "default"
 
 
 def make_command(

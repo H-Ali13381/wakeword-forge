@@ -90,7 +90,7 @@ def test_project_status_blocks_training_until_negative_coverage_targets_are_met(
 
 
 def test_make_command_outputs_copy_pasteable_cli_fallbacks(tmp_path):
-    project_dir = tmp_path / "wakeword demo"
+    project_dir = tmp_path / "wakeword project"
 
     assert make_command("dashboard", project_dir) == f"make dashboard DIR='{project_dir}'"
     assert make_command("info", project_dir) == f"make info DIR='{project_dir}'"
@@ -107,7 +107,8 @@ def test_make_command_outputs_copy_pasteable_cli_fallbacks(tmp_path):
 def test_dashboard_script_loads_when_executed_by_streamlit_runner():
     namespace = runpy.run_path("wakeword_forge/dashboard.py")
 
-    assert namespace["DEFAULT_PROJECT_DIR"].name == "wakeword_forge_project"
+    default_dir = namespace["DEFAULT_PROJECT_DIR"]
+    assert default_dir.parts[-2:] == ("projects", "default")
 
 
 def test_dashboard_main_uses_dir_arg_when_streamlit_is_already_running(monkeypatch, tmp_path):

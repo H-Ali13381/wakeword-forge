@@ -9,9 +9,9 @@ services:
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       PYTHONUNBUFFERED: "1"
     volumes:
-      - ${WAKEWORD_FORGE_PROJECT:-${HOME}/wakeword_forge_project}:/project:rw
+      - ${WAKEWORD_FORGE_PROJECT:-../../projects/default}:/project:rw
       - ${WAKEWORD_FORGE_JOB_DIR:-${PWD}/jobs}:/jobs:ro
-      - ${WAKEWORD_FORGE_OUTPUT_DIR:-${HOME}/wakeword_forge_project/.cache/voice_clone/generated}:/outputs:rw
+      - ${WAKEWORD_FORGE_OUTPUT_DIR:-../../projects/default/.cache/voice_clone/generated}:/outputs:rw
       - qwentts-hf-cache:/root/.cache/huggingface
     gpus: all
     shm_size: 4g

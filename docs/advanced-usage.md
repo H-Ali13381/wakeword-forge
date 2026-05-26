@@ -6,22 +6,22 @@ Start with the short path in [README.md](../README.md). Use this file when you n
 
 ## Command reference
 
-Run commands from the repository root. Make targets install into `.venv` and call `.venv/bin/wakeword-forge` for you.
+Run commands from the repository root. Make targets install into `.venv` and call `.venv/bin/wakeword-forge` for you. Examples use `DIR=./projects/default`, the repo-local ignored workspace used by plain `make start`.
 
 | Task | Command |
 | --- | --- |
-| Open the dashboard | `make start DIR=~/wakeword-forge-demo` |
-| Run the terminal wizard | `make cli-run DIR=~/wakeword-forge-demo` |
-| Show project status | `make info DIR=~/wakeword-forge-demo` |
-| Record positives | `make record DIR=~/wakeword-forge-demo PHRASE='Hey Nova' N=20` |
-| Generate TTS positives | `make synth DIR=~/wakeword-forge-demo PHRASE='Hey Nova' N=300` |
-| Import background negatives | `make import-negatives DIR=~/wakeword-forge-demo NEG_SOURCE_DIR=~/clips NEG_LIMIT=150` |
-| Review samples | `make review DIR=~/wakeword-forge-demo` |
-| Audit generated clips | `make audit DIR=~/wakeword-forge-demo` |
-| Train and export ONNX | `make train DIR=~/wakeword-forge-demo` |
-| Run guided live check | `make quality-check DIR=~/wakeword-forge-demo` |
-| Accept checked model | `make accept-model DIR=~/wakeword-forge-demo` |
-| Test the accepted model on mic input | `make mic-test DIR=~/wakeword-forge-demo` |
+| Open the dashboard | `make start DIR=./projects/default` |
+| Run the terminal wizard | `make cli-run DIR=./projects/default` |
+| Show project status | `make info DIR=./projects/default` |
+| Record positives | `make record DIR=./projects/default PHRASE='Hey Nova' N=20` |
+| Generate TTS positives | `make synth DIR=./projects/default PHRASE='Hey Nova' N=300` |
+| Import background negatives | `make import-negatives DIR=./projects/default NEG_SOURCE_DIR=~/clips NEG_LIMIT=150` |
+| Review samples | `make review DIR=./projects/default` |
+| Audit generated clips | `make audit DIR=./projects/default` |
+| Train and export ONNX | `make train DIR=./projects/default` |
+| Run guided live check | `make quality-check DIR=./projects/default` |
+| Accept checked model | `make accept-model DIR=./projects/default` |
+| Test the accepted model on mic input | `make mic-test DIR=./projects/default` |
 
 Run `make help` for the full target list.
 
@@ -32,7 +32,7 @@ If you need the Typer CLI directly, install once and call the repo-local binary:
 ```bash
 make install
 .venv/bin/wakeword-forge --help
-.venv/bin/wakeword-forge train --dir ~/wakeword-forge-demo
+.venv/bin/wakeword-forge train --dir ./projects/default
 ```
 
 ## Optional tools
@@ -58,7 +58,7 @@ Current guardrails require:
 For external data, prefer manifest imports so provenance survives review:
 
 ```bash
-make import-negatives DIR=~/wakeword-forge-demo \
+make import-negatives DIR=./projects/default \
   NEG_MANIFEST=~/external_negatives.jsonl \
   NEG_LIMIT=150 \
   NEG_LIMIT_PER_SOURCE=25 \
@@ -74,7 +74,7 @@ The Make variables above map to the CLI's `--limit-per-source` and `--strata` op
 QwenTTS is the recommended generator for synthetic data. It produces more speaker/style variety for wakeword positives and hard negatives than the lighter CPU fallbacks.
 
 ```bash
-make synth DIR=~/wakeword-forge-demo PHRASE='Hey Nova' N=300 ENGINE=qwentts
+make synth DIR=./projects/default PHRASE='Hey Nova' N=300 ENGINE=qwentts
 ```
 
 QwenTTS baseline synthesis does not clone a speaker. It uses built-in voice designs and does not require external reference audio.
@@ -93,8 +93,8 @@ It generates one candidate at a time and stages it for human review:
 
 ```bash
 make qwentts-build
-make qwentts-voice-clone-one DIR=~/wakeword-forge-demo SOURCE_MANIFEST=~/wakeword-forge-demo/voice_clone_sources.jsonl
-make review-cloned-samples DIR=~/wakeword-forge-demo
+make qwentts-voice-clone-one DIR=./projects/default SOURCE_MANIFEST=./projects/default/voice_clone_sources.jsonl
+make review-cloned-samples DIR=./projects/default
 ```
 
 ## Training and output
