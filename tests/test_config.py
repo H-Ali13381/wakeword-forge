@@ -9,10 +9,12 @@ from forge.config import ForgeConfig
 
 def test_save_load_roundtrip(tmp_path):
     sample_source = tmp_path / "existing samples"
+    negative_source = tmp_path / "existing negatives"
     cfg = ForgeConfig(
         wake_phrase="Hey Nova",
         project_dir=str(tmp_path),
         sample_source_dir=str(sample_source),
+        negative_source_dir=str(negative_source),
     )
     cfg_file = tmp_path / "forge_config.json"
     cfg.save(cfg_file)
@@ -20,6 +22,7 @@ def test_save_load_roundtrip(tmp_path):
     assert loaded.wake_phrase == "Hey Nova"
     assert loaded.backend == "wavlm-repcnn"
     assert loaded.sample_source_dir == str(sample_source)
+    assert loaded.negative_source_dir == str(negative_source)
 
 
 def test_resolved_paths(tmp_path):

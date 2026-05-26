@@ -15,7 +15,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
 from forge.config import (
     CONFUSABLE_NEGATIVE_TARGET,
@@ -24,7 +24,9 @@ from forge.config import (
     MIN_POSITIVES,
     normalize_phrases,
 )
+from forge.negative_ingestion import import_negative_audio
 from forge.project import (
+    SUPPORTED_AUDIO_EXTENSIONS,
     ensure_project_dirs,
     import_positive_samples,
     inspect_project,
@@ -35,6 +37,31 @@ from forge.project import (
 from forge.update_check import UpdateRecommendation, check_for_updates
 
 DEFAULT_PROJECT_DIR = Path.cwd() / "projects" / "default"
+OPEN_DATA_CONFIRM_KEY = "forge_open_data_license_confirmation"
+RECOMMENDED_OPEN_DATA_TARGET = 200
+RECOMMENDED_OPEN_DATA_MODE = "Use recommended open-source data"
+MANUAL_OPEN_DATA_MODE = "Use my own local folder"
+SKIP_OPEN_DATA_MODE = "Skip external background data"
+MANUAL_ADVANCED_ACOUSTIC_MODE = "Use my own local folders"
+SKIP_ADVANCED_ACOUSTIC_MODE = "Skip advanced acoustic folders"
+BACKGROUND_NOISE_DATA_SOURCE_OPTIONS = [
+    RECOMMENDED_OPEN_DATA_MODE,
+    MANUAL_OPEN_DATA_MODE,
+    SKIP_OPEN_DATA_MODE,
+]
+ADVANCED_ACOUSTIC_DATA_SOURCE_OPTIONS = [
+    RECOMMENDED_OPEN_DATA_MODE,
+    MANUAL_ADVANCED_ACOUSTIC_MODE,
+    SKIP_ADVANCED_ACOUSTIC_MODE,
+]
+RECOMMENDED_OPEN_DATA_LICENSE_NOTICE = """Recommended open-source data may include:
+
+- Mozilla Common Voice speech clips via Hugging Face/datasets. Common Voice clips are distributed under a public-domain/CC0-style license, but you should still review Mozilla's current dataset terms before redistribution or commercial use.
+- ESC-50 environmental sound clips. ESC-50 is CC BY-NC 3.0, which requires attribution and is non-commercial.
+- Locally generated synthetic silence/noise clips with no third-party dataset license.
+
+Only import datasets you are allowed to use for your project. wakeword-forge preserves this as local project data; you are responsible: verify the dataset licenses for your deployment context.
+""".strip()
 TTS_ENGINE_HELP = """TTS means text-to-speech: generated wake-phrase clips used to add voice variety.
 
 - QwenTTS: most natural speech and the recommended choice when you have compatible hardware, but it is slower and needs heavier model dependencies.
@@ -119,29 +146,110 @@ def _css() -> str:
     return """
     <style>
     :root {
-        --forge-ember: #ff7a2f;
-        --forge-brass: #d2a85d;
+        --forge-primary: #58c7ff;
+        --forge-primary-strong: #2ea8ff;
+        --forge-success: #40d689;
+        --forge-active: #f5c654;
+        --forge-danger: #ff5858;
         --forge-ink: #111317;
+        --forge-text: #fff2df;
+        --forge-muted: rgba(255, 242, 223, 0.66);
         --forge-panel: rgba(25, 28, 34, 0.74);
     }
     .stApp {
+        color: var(--forge-text);
         background:
-            radial-gradient(circle at top left, rgba(255, 122, 47, 0.18), transparent 34rem),
+            radial-gradient(circle at top left, rgba(88, 199, 255, 0.14), transparent 34rem),
             linear-gradient(135deg, #0f1115 0%, #171a20 55%, #0d0f12 100%);
+    }
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+    .stApp p, .stApp label, .stApp span {
+        color: var(--forge-text);
+    }
+    .stApp [data-testid="stCaptionContainer"],
+    .stApp [data-testid="stWidgetLabel"] {
+        color: var(--forge-muted);
+    }
+    [data-testid="stHeader"] {
+        background: #111317;
     }
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #111317 0%, #191b22 100%);
-        border-right: 1px solid rgba(255, 122, 47, 0.18);
+        border-right: 1px solid rgba(88, 199, 255, 0.16);
+    }
+    [data-testid="stSidebar"] * {
+        color: var(--forge-text);
+    }
+    [data-testid="stTextInput"] input,
+    div[data-baseweb="input"] input,
+    div[data-baseweb="select"] input {
+        background: rgba(17, 19, 23, 0.82);
+        border-color: rgba(88, 199, 255, 0.24);
+        caret-color: var(--forge-primary);
+        color: var(--forge-text);
+    }
+    div[data-baseweb="input"],
+    div[data-baseweb="select"] {
+        background: rgba(17, 19, 23, 0.82) !important;
+        border-color: rgba(88, 199, 255, 0.24) !important;
+        color: var(--forge-text);
+    }
+    div[data-baseweb="input"] [data-baseweb="base-input"] {
+        background: rgba(17, 19, 23, 0.82) !important;
+        border-color: rgba(88, 199, 255, 0.24) !important;
+        color: var(--forge-text) !important;
+    }
+    div[data-baseweb="input"] [data-baseweb="base-input"] input {
+        background: transparent !important;
+        color: var(--forge-text) !important;
+    }
+    [data-testid="stNumberInputStepDown"],
+    [data-testid="stNumberInputStepUp"] {
+        background: rgba(17, 19, 23, 0.82) !important;
+        border-color: rgba(88, 199, 255, 0.24) !important;
+        color: var(--forge-text) !important;
+    }
+    [data-testid="stNumberInputStepDown"] svg,
+    [data-testid="stNumberInputStepUp"] svg {
+        fill: var(--forge-text) !important;
+    }
+    div[data-baseweb="input"]:focus-within,
+    div[data-baseweb="select"]:focus-within {
+        border-color: var(--forge-primary-strong) !important;
+        box-shadow: 0 0 0 0.14rem rgba(88, 199, 255, 0.32) !important;
+    }
+    div[data-baseweb="select"] > div {
+        background: rgba(17, 19, 23, 0.82) !important;
+        border-color: rgba(88, 199, 255, 0.24) !important;
+        color: var(--forge-text) !important;
+    }
+    div[data-baseweb="select"] [role="combobox"] {
+        background: transparent !important;
+        color: var(--forge-text) !important;
+    }
+    div[data-baseweb="select"] svg {
+        color: var(--forge-text) !important;
+        fill: var(--forge-text) !important;
+    }
+    [data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:checked) > div:first-child {
+        background: var(--forge-primary-strong) !important;
+        border-color: var(--forge-primary-strong) !important;
+    }
+    [data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:checked) > div:first-child > div {
+        background: var(--forge-text) !important;
+    }
+    [data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:focus-visible) > div:first-child {
+        box-shadow: 0 0 0 0.14rem rgba(88, 199, 255, 0.32) !important;
     }
     .forge-hero {
-        border: 1px solid rgba(255, 122, 47, 0.25);
+        border: 1px solid rgba(88, 199, 255, 0.22);
         border-radius: 24px;
         padding: 1.4rem 1.6rem;
-        background: linear-gradient(135deg, rgba(255,122,47,0.16), rgba(17,19,23,0.92));
+        background: linear-gradient(135deg, rgba(88,199,255,0.10), rgba(17,19,23,0.92));
         box-shadow: 0 18px 70px rgba(0,0,0,0.34);
     }
     .forge-kicker {
-        color: var(--forge-brass);
+        color: var(--forge-primary);
         font-size: 0.8rem;
         letter-spacing: 0.18em;
         text-transform: uppercase;
@@ -160,12 +268,23 @@ def _css() -> str:
         margin-top: 0.7rem;
         max-width: 58rem;
     }
+    .forge-card-grid {
+        align-items: stretch;
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin: 1rem 0;
+    }
     .forge-card {
+        background: rgba(17, 19, 23, 0.76);
         border: 1px solid rgba(210, 168, 93, 0.22);
         border-radius: 18px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        height: 9.5rem;
         padding: 1rem;
-        background: rgba(17, 19, 23, 0.76);
-        min-height: 8.2rem;
+        width: 100%;
     }
     .forge-card-label {
         color: rgba(255, 242, 223, 0.58);
@@ -183,6 +302,45 @@ def _css() -> str:
         color: rgba(255, 242, 223, 0.65);
         font-size: 0.88rem;
         margin-top: 0.3rem;
+    }
+    .forge-data-source-card {
+        border: 1px solid rgba(64, 214, 137, 0.34);
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(64, 214, 137, 0.15), rgba(17, 19, 23, 0.76));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+        margin: -0.25rem 0 0.65rem;
+        padding: 0.9rem 1rem;
+    }
+    .forge-data-source-title {
+        color: var(--forge-text);
+        font-size: 1.02rem;
+        font-weight: 830;
+        margin-top: 0;
+    }
+    .forge-data-source-path {
+        color: rgba(255, 242, 223, 0.76);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8rem;
+        line-height: 1.55;
+        margin-top: 0.38rem;
+        overflow-wrap: anywhere;
+    }
+    .forge-subsection {
+        border-top: 1px solid rgba(255, 242, 223, 0.10);
+        margin: 1.1rem 0 0.45rem;
+        padding-top: 0.82rem;
+    }
+    .forge-subsection-title {
+        color: var(--forge-text);
+        font-size: 1.02rem;
+        font-weight: 850;
+        letter-spacing: 0.01em;
+    }
+    .forge-subsection-note {
+        color: var(--forge-muted);
+        font-size: 0.88rem;
+        line-height: 1.45;
+        margin-top: 0.18rem;
     }
     .forge-step-box {
         border: 1px solid rgba(255, 242, 223, 0.16);
@@ -212,11 +370,11 @@ def _css() -> str:
         margin-top: 0.22rem;
     }
     .forge-step-done {
-        border-color: rgba(64, 214, 137, 0.72);
+        border-color: color-mix(in srgb, var(--forge-success) 72%, transparent);
         background: rgba(64, 214, 137, 0.13);
     }
     .forge-step-active {
-        border-color: rgba(245, 198, 84, 0.82);
+        border-color: color-mix(in srgb, var(--forge-active) 82%, transparent);
         background: rgba(245, 198, 84, 0.14);
     }
     .forge-step-pending {
@@ -227,23 +385,48 @@ def _css() -> str:
         border-color: rgba(255, 88, 88, 0.82);
         background: rgba(255, 88, 88, 0.13);
     }
+    .forge-step-hint {
+        color: var(--forge-muted);
+        font-size: 0.94rem;
+        margin: -0.2rem 0 1rem;
+    }
     .stButton > button[kind="secondary"] {
-        border-color: rgba(210, 168, 93, 0.55);
-        background: rgba(210, 168, 93, 0.13);
-        color: #fff2df;
+        border-color: rgba(255, 242, 223, 0.22);
+        background: rgba(255, 242, 223, 0.06);
+        color: var(--forge-text);
+    }
+    .stButton > button[kind="primary"] {
+        border-color: var(--forge-primary-strong);
+        background: linear-gradient(135deg, var(--forge-primary), var(--forge-primary-strong));
+        color: #111317;
+        font-weight: 850;
     }
     </style>
     """
 
 
 def _card(label: str, value: str, note: str) -> str:
-    return f"""
-    <div class="forge-card">
-      <div class="forge-card-label">{label}</div>
-      <div class="forge-card-value">{value}</div>
-      <div class="forge-card-note">{note}</div>
-    </div>
-    """
+    return (
+        '<div class="forge-card">'
+        f'<div class="forge-card-label">{html.escape(label)}</div>'
+        f'<div class="forge-card-value">{html.escape(value)}</div>'
+        f'<div class="forge-card-note">{html.escape(note)}</div>'
+        "</div>"
+    )
+
+
+def _render_subsection(st, title: str, note: str) -> None:
+    markup = (
+        '<div class="forge-subsection">'
+        f'<div class="forge-subsection-title">{html.escape(title)}</div>'
+        f'<div class="forge-subsection-note">{html.escape(note)}</div>'
+        "</div>"
+    )
+    markdown = getattr(st, "markdown", None)
+    if callable(markdown):
+        markdown(markup, unsafe_allow_html=True)
+    else:
+        st.caption(f"{title}: {note}")
 
 
 def _run_blocking_action(label: str, action: Callable[[], object]) -> None:
@@ -262,19 +445,120 @@ def _run_blocking_action(label: str, action: Callable[[], object]) -> None:
 
 DASHBOARD_STEP_KEY = "forge_dashboard_step"
 LAST_CAPTURED_TAKE_KEY = "forge_last_captured_take"
+PHRASE_ALIAS_COUNT_KEY = "forge_phrase_alias_count"
 RESET_MESSAGE_KEY = "forge_reset_message"
 UPDATE_CHECK_STATE_KEY = "forge_update_check"
-WIZARD_STEPS = ("intro", "workspace", "recording", "augmentation", "capture", "review", "train", "done")
+WIZARD_STEPS = (
+    "intro",
+    "workspace",
+    "phrase",
+    "recording",
+    "augmentation",
+    "capture",
+    "review",
+    "train",
+    "done",
+)
 WIZARD_STEP_LABELS = {
     "intro": "Start",
-    "workspace": "1. Name the trigger",
-    "recording": "2. Recording plan",
-    "augmentation": "3. Augmentation plan",
-    "capture": "4. Capture examples",
-    "review": "5. Review samples",
-    "train": "6. Train and test",
-    "done": "7. Accept model",
+    "workspace": "1. Project folder",
+    "phrase": "2. Wake phrase",
+    "recording": "3. Recording plan",
+    "augmentation": "4. Augmentation plan",
+    "capture": "5. Capture examples",
+    "review": "6. Review samples",
+    "train": "7. Train and test",
+    "done": "8. Accept model",
 }
+STEP_HINTS = {
+    "workspace": "Confirm where wakeword-forge stores this project's config, samples, generated audio, and model output.",
+    "phrase": "Use one primary phrase. Add aliases only for variants you actually say.",
+    "recording": "Choose capture targets and whether positives come from the mic or an existing folder.",
+    "augmentation": "Pick generated speech and acoustic variation before creating extra examples.",
+    "capture": "Record or import examples one item at a time, then fill hard/background negatives.",
+    "review": "Spot-check samples before training; approvals go stale if files change.",
+    "train": "Train only after review gates are current, then run a live quality check.",
+    "done": "Use the accepted model and run a final mic test in your runtime environment.",
+}
+WORKSPACE_FIELDS = ("project_dir",)
+PHRASE_FIELDS = ("wake_phrase", "wake_phrases")
+RECORDING_PLAN_FIELDS = (
+    "record_positives",
+    "record_negatives",
+    "record_duration",
+    "sample_source_dir",
+    "negative_source_dir",
+)
+GENERATED_AUGMENTATION_FIELDS = (
+    "use_tts_augmentation",
+    "tts_variants",
+    "tts_engine",
+)
+TRAINING_AUGMENTATION_FIELDS = (
+    "training_augmentation_enabled",
+    "training_augmentation_preset",
+    "regular_negative_augmentation_preset",
+    "use_spectrogram_augmentation",
+    "augmentation_noise_dir",
+    "augmentation_ir_dir",
+    "augmentation_short_noise_dir",
+    "augmentation_truck_noise_dir",
+)
+
+
+def _fields_changed(before: ForgeConfig, after: ForgeConfig, fields: tuple[str, ...]) -> bool:
+    return any(getattr(before, field) != getattr(after, field) for field in fields)
+
+
+def _clear_training_checkpoints(config: ForgeConfig) -> None:
+    """Clear trained-model approval state after upstream wizard choices change."""
+
+    config.trained_eer = None
+    config.trained_sample_fingerprint = ""
+    config.quality_check_passed = False
+    config.model_accepted = False
+    config.quality_checked_model_path = ""
+    config.quality_checked_model_fingerprint = ""
+    config.accepted_model_fingerprint = ""
+    config.quality_positive_hits = 0
+    config.quality_positive_trials = 0
+    config.quality_false_triggers = 0
+    config.quality_score_min = None
+    config.quality_score_max = None
+
+
+def _clear_generated_review_checkpoints(config: ForgeConfig) -> None:
+    config.generated_review_approved = False
+    config.generated_review_fingerprint = ""
+    _clear_training_checkpoints(config)
+
+
+def _clear_all_review_checkpoints(config: ForgeConfig) -> None:
+    config.sample_review_approved = False
+    config.sample_review_fingerprint = ""
+    _clear_generated_review_checkpoints(config)
+
+
+def _apply_step_change_invalidations(
+    previous_config: ForgeConfig,
+    updated_config: ForgeConfig,
+    edited_step: str,
+) -> ForgeConfig:
+    """Return updated_config with stale downstream approvals cleared after a wizard edit."""
+
+    updated = replace(updated_config)
+    if edited_step == "workspace" and _fields_changed(previous_config, updated, WORKSPACE_FIELDS):
+        _clear_all_review_checkpoints(updated)
+    elif edited_step == "phrase" and _fields_changed(previous_config, updated, PHRASE_FIELDS):
+        _clear_all_review_checkpoints(updated)
+    elif edited_step == "recording" and _fields_changed(previous_config, updated, RECORDING_PLAN_FIELDS):
+        _clear_all_review_checkpoints(updated)
+    elif edited_step == "augmentation":
+        if _fields_changed(previous_config, updated, GENERATED_AUGMENTATION_FIELDS):
+            _clear_generated_review_checkpoints(updated)
+        if _fields_changed(previous_config, updated, TRAINING_AUGMENTATION_FIELDS):
+            _clear_training_checkpoints(updated)
+    return updated
 
 
 def _cached_update_recommendation(
@@ -287,6 +571,16 @@ def _cached_update_recommendation(
     recommendation = checker()
     st.session_state[UPDATE_CHECK_STATE_KEY] = recommendation
     return recommendation
+
+
+def _count_supported_audio_files(source_path: Path) -> int:
+    return len(
+        [
+            path
+            for path in source_path.rglob("*")
+            if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+        ]
+    )
 
 
 def _render_update_notice(st, recommendation: UpdateRecommendation | None = None) -> None:
@@ -302,10 +596,89 @@ def _render_update_notice(st, recommendation: UpdateRecommendation | None = None
 
 
 def _set_wizard_step(st, step: str) -> None:
+    if step not in WIZARD_STEPS:
+        raise ValueError(f"Unknown dashboard wizard step: {step}")
     st.session_state[DASHBOARD_STEP_KEY] = step
+    if step != "capture":
+        st.session_state.pop(LAST_CAPTURED_TAKE_KEY, None)
 
 
-def _confirm_step(st, config: ForgeConfig, next_step: str, message: str) -> None:
+def _navigate_to_wizard_step(st, step: str) -> None:
+    _set_wizard_step(st, step)
+    st.rerun()
+
+
+def _previous_wizard_step(step: str) -> str | None:
+    if step not in WIZARD_STEPS:
+        return None
+    index = WIZARD_STEPS.index(step)
+    if index <= 0:
+        return None
+    return WIZARD_STEPS[index - 1]
+
+
+def _render_step_back_navigation(st, current_step: str) -> None:
+    previous_step = _previous_wizard_step(current_step)
+    if previous_step is None:
+        return
+    st.caption(
+        "Need to fix an earlier choice? Go back, adjust it, then confirm again. "
+        "Changed plans refresh stale review/training checkpoints without deleting files."
+    )
+    label = "Back"
+    if st.button(label, type="secondary", use_container_width=False):
+        _navigate_to_wizard_step(st, previous_step)
+
+
+def _render_wizard_action_row(
+    st,
+    current_step: str,
+    primary_label: str,
+    *,
+    disabled: bool = False,
+    primary_type: str = "primary",
+) -> bool:
+    """Render the bottom [Back | primary action] row for wizard steps."""
+
+    previous_step = _previous_wizard_step(current_step)
+    if previous_step is None:
+        return bool(
+            st.button(
+                primary_label,
+                type=primary_type,
+                disabled=disabled,
+                use_container_width=True,
+            )
+        )
+
+    back_col, primary_col = st.columns(2)
+    with back_col:
+        back_label = "Back"
+        if st.button(back_label, type="secondary", use_container_width=True):
+            _navigate_to_wizard_step(st, previous_step)
+            return False
+    with primary_col:
+        return bool(
+            st.button(
+                primary_label,
+                type=primary_type,
+                disabled=disabled,
+                use_container_width=True,
+            )
+        )
+
+
+def _confirm_step(
+    st,
+    config: ForgeConfig,
+    next_step: str,
+    message: str,
+    *,
+    previous_config: ForgeConfig | None = None,
+    edited_step: str | None = None,
+) -> None:
+    if previous_config is not None and edited_step is not None:
+        config = _apply_step_change_invalidations(previous_config, config, edited_step)
     ensure_project_dirs(config)
     save_config(config)
     _set_wizard_step(st, next_step)
@@ -313,12 +686,20 @@ def _confirm_step(st, config: ForgeConfig, next_step: str, message: str) -> None
     st.rerun()
 
 
-def _phrase_text(config: ForgeConfig) -> str:
-    return "\n".join(config.phrase_options or normalize_phrases((config.wake_phrase,)))
+def _configured_primary_and_aliases(config: ForgeConfig) -> tuple[str, list[str]]:
+    phrases = list(config.phrase_options)
+    if not phrases:
+        return "", []
+    return phrases[0], phrases[1:]
 
 
-def _parse_phrase_text(text: str) -> tuple[str, ...]:
-    return normalize_phrases(tuple(text.splitlines()))
+def _render_step_guidance(st, step: str) -> None:
+    """Render compact current-step help without competing with the checklist."""
+
+    hint = STEP_HINTS.get(step)
+    if not hint:
+        return
+    st.caption(hint)
 
 
 def _render_intro_step(st, config: ForgeConfig) -> None:
@@ -338,42 +719,92 @@ def _render_intro_step(st, config: ForgeConfig) -> None:
         unsafe_allow_html=True,
     )
     st.markdown("")
-    cols = st.columns(3)
     cards = [
         _card("Private", "Local", "Recordings stay in the project folder."),
         _card("Guided", "Wizard", "One decision at a time, then explicit review."),
         _card("Flexible", "Aliases", "Train one detector for one or more trigger phrases."),
     ]
-    for col, card in zip(cols, cards):
-        with col:
-            st.markdown(card, unsafe_allow_html=True)
-    if st.button("Begin", type="secondary", use_container_width=True):
+    st.markdown(
+        f'<div class="forge-card-grid">{"".join(cards)}</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Begin", type="primary", use_container_width=True):
         _set_wizard_step(st, "workspace")
         st.rerun()
 
 
 def _render_workspace_step(st, config: ForgeConfig) -> ForgeConfig:
-    """Render only workspace/phrase fields for the first wizard step."""
+    """Render only the project directory confirmation step."""
 
-    st.subheader("1. Name the trigger")
-    st.caption("Choose where this project lives and list every phrase that should trigger the detector.")
-    project_dir = st.text_input("Project directory", value=str(config.project_path))
-    phrase_text = st.text_area(
-        "Wake phrases (one per line)",
-        value=_phrase_text(config),
-        help="Use one phrase per line. The first phrase is the primary display name; all lines become positive trigger aliases.",
+    st.subheader("1. Project folder")
+    st.caption("Confirm where this project stores config, samples, generated audio, cache, and model output.")
+    project_dir = st.text_input(
+        "Project directory",
+        value=str(config.project_path),
+        help="Use a disposable project folder for experiments. Existing unrelated files are preserved by dashboard reset actions.",
     )
-    phrases = _parse_phrase_text(phrase_text)
+    updated = replace(config, project_dir=project_dir.strip() or str(DEFAULT_PROJECT_DIR))
+    if _render_wizard_action_row(st, "workspace", "Confirm project folder"):
+        _confirm_step(
+            st,
+            updated,
+            "phrase",
+            "Project folder confirmed.",
+            previous_config=config,
+            edited_step="workspace",
+        )
+    return updated
 
+
+def _render_phrase_step(st, config: ForgeConfig) -> ForgeConfig:
+    """Render the primary wake phrase plus optional alias inputs."""
+
+    st.subheader("2. Wake phrase")
+    st.caption("Start with the exact phrase you will say. Add aliases only if you truly use alternate wording.")
+    primary, aliases = _configured_primary_and_aliases(config)
+    alias_count = max(len(aliases), int(st.session_state.get(PHRASE_ALIAS_COUNT_KEY, len(aliases))))
+
+    primary_text = st.text_input(
+        "Primary wake phrase",
+        value=primary,
+        help="The main phrase that should trigger the detector.",
+    )
+    alias_inputs: list[str] = []
+    for index in range(alias_count):
+        default = aliases[index] if index < len(aliases) else ""
+        alias_inputs.append(
+            st.text_input(
+                f"Alias {index + 1}",
+                value=default,
+                help="Optional alternate phrase, such as another way you naturally call the same assistant.",
+            )
+        )
+
+    if st.button("Add another phrase", type="secondary", use_container_width=False):
+        st.session_state[PHRASE_ALIAS_COUNT_KEY] = alias_count + 1
+        st.rerun()
+        return config
+
+    phrases = normalize_phrases((primary_text, *alias_inputs))
     updated = replace(
         config,
-        project_dir=project_dir.strip() or str(DEFAULT_PROJECT_DIR),
         wake_phrase=phrases[0] if phrases else "",
-        wake_phrases=list(phrases),
+        wake_phrases=list(phrases[1:]),
     )
-    can_continue = bool(updated.phrase_options)
-    if st.button("Confirm phrases", type="secondary", disabled=not can_continue, use_container_width=True):
-        _confirm_step(st, updated, "recording", "Phrases confirmed.")
+    if _render_wizard_action_row(
+        st,
+        "phrase",
+        "Confirm wake phrase",
+        disabled=not updated.wake_phrase,
+    ):
+        _confirm_step(
+            st,
+            updated,
+            "recording",
+            "Wake phrase confirmed.",
+            previous_config=config,
+            edited_step="phrase",
+        )
     return updated
 
 
@@ -381,39 +812,70 @@ def _render_recording_step(st, config: ForgeConfig) -> ForgeConfig:
     """Render only recording/import parameters for the second wizard step."""
 
     st.subheader("2. Recording plan")
-    st.caption("Use a microphone or import an existing folder of wake-phrase clips.")
+    st.caption("Use a microphone or import existing folders of wake-phrase and non-wakeword clips.")
     source_options = ("Record with microphone", "Import existing folder")
     source_mode = st.selectbox(
         "Positive sample source",
         options=source_options,
         index=1 if config.sample_source_dir else 0,
     )
-    record_positives = st.number_input(
-        "Target positive examples",
-        min_value=MIN_POSITIVES,
-        max_value=200,
-        value=max(config.record_positives, MIN_POSITIVES),
-    )
     sample_source_dir = ""
+    record_positives = max(config.record_positives, MIN_POSITIVES)
     if source_mode == "Import existing folder":
         sample_source_dir = st.text_input(
             "Existing positive sample folder",
             value=config.sample_source_dir,
             help="Folder containing existing wake-phrase audio clips. Supported formats: WAV, FLAC, OGG.",
         ).strip()
-    record_negatives = st.number_input(
-        "Target negative recordings",
-        min_value=MIN_NEGATIVES,
-        max_value=200,
-        value=max(config.record_negatives, MIN_NEGATIVES),
+        source_path = Path(sample_source_dir).expanduser() if sample_source_dir else None
+        if source_path is not None and source_path.is_dir():
+            record_positives = _count_supported_audio_files(source_path)
+            st.caption(f"Found {record_positives} existing wake-phrase audio files in that folder.")
+        elif source_path is not None:
+            st.caption("The positive target will come from that folder once it is available.")
+    else:
+        record_positives = st.number_input(
+            "Target positive examples",
+            min_value=MIN_POSITIVES,
+            max_value=200,
+            value=record_positives,
+        )
+
+    negative_source_mode = st.selectbox(
+        "Negative sample source",
+        options=source_options,
+        index=1 if config.negative_source_dir else 0,
     )
-    record_duration = st.number_input(
-        "Seconds per take",
-        min_value=1.0,
-        max_value=8.0,
-        value=float(config.record_duration),
-        step=0.25,
-    )
+    negative_source_dir = ""
+    record_negatives = max(config.record_negatives, MIN_NEGATIVES)
+    if negative_source_mode == "Import existing folder":
+        negative_source_dir = st.text_input(
+            "Existing negative sample folder",
+            value=config.negative_source_dir,
+            help="Folder containing existing non-wakeword audio clips. Supported formats: WAV, FLAC, OGG.",
+        ).strip()
+        negative_source_path = Path(negative_source_dir).expanduser() if negative_source_dir else None
+        if negative_source_path is not None and negative_source_path.is_dir():
+            record_negatives = _count_supported_audio_files(negative_source_path)
+            st.caption(f"Found {record_negatives} existing negative audio files in that folder.")
+        elif negative_source_path is not None:
+            st.caption("The negative target will come from that folder once it is available.")
+    else:
+        record_negatives = st.number_input(
+            "Target negative recordings",
+            min_value=MIN_NEGATIVES,
+            max_value=200,
+            value=record_negatives,
+        )
+    record_duration = float(config.record_duration)
+    if source_mode == "Record with microphone" or negative_source_mode == "Record with microphone":
+        record_duration = st.number_input(
+            "Seconds per take",
+            min_value=1.0,
+            max_value=8.0,
+            value=record_duration,
+            step=0.25,
+        )
 
     updated = replace(
         config,
@@ -421,10 +883,202 @@ def _render_recording_step(st, config: ForgeConfig) -> ForgeConfig:
         record_negatives=int(record_negatives),
         record_duration=float(record_duration),
         sample_source_dir=sample_source_dir,
+        negative_source_dir=negative_source_dir,
     )
-    if st.button("Confirm recording plan", type="secondary", use_container_width=True):
-        _confirm_step(st, updated, "augmentation", "Recording plan confirmed.")
+    if _render_wizard_action_row(st, "recording", "Confirm recording plan"):
+        _confirm_step(
+            st,
+            updated,
+            "augmentation",
+            "Recording plan confirmed.",
+            previous_config=config,
+            edited_step="recording",
+        )
     return updated
+
+
+def _recommended_open_data_dir(config: ForgeConfig) -> Path:
+    return config.project_path / "sources" / "recommended_open_audio" / "background_noise"
+
+
+def _recommended_advanced_acoustic_dirs(config: ForgeConfig) -> dict[str, Path]:
+    base = config.project_path / "sources" / "recommended_open_audio"
+    return {
+        "ir": base / "room_impulse_responses",
+        "short_noise": base / "short_noises",
+        "low_frequency": base / "low_frequency_noises",
+    }
+
+
+def _background_noise_data_mode(config: ForgeConfig) -> str:
+    noise_dir = str(config.augmentation_noise_dir).strip()
+    if not noise_dir:
+        return SKIP_OPEN_DATA_MODE
+    if Path(noise_dir).expanduser() == _recommended_open_data_dir(config):
+        return RECOMMENDED_OPEN_DATA_MODE
+    return MANUAL_OPEN_DATA_MODE
+
+
+def _advanced_acoustic_data_mode(config: ForgeConfig) -> str:
+    values = (
+        str(config.augmentation_ir_dir).strip(),
+        str(config.augmentation_short_noise_dir).strip(),
+        str(config.augmentation_truck_noise_dir).strip(),
+    )
+    if not any(values):
+        return SKIP_ADVANCED_ACOUSTIC_MODE
+
+    recommended_dirs = _recommended_advanced_acoustic_dirs(config)
+    if (
+        Path(values[0]).expanduser() == recommended_dirs["ir"]
+        and Path(values[1]).expanduser() == recommended_dirs["short_noise"]
+        and Path(values[2]).expanduser() == recommended_dirs["low_frequency"]
+    ):
+        return RECOMMENDED_OPEN_DATA_MODE
+    return MANUAL_ADVANCED_ACOUSTIC_MODE
+
+
+def _render_recommended_advanced_acoustic_status(st, config: ForgeConfig) -> dict[str, Path]:
+    recommended_dirs = _recommended_advanced_acoustic_dirs(config)
+    st.markdown(
+        '<div class="forge-data-source-card">'
+        '<div class="forge-data-source-title">Recommended advanced acoustic folders</div>'
+        '<div class="forge-data-source-path">'
+        f'Room impulses: {html.escape(str(recommended_dirs["ir"]))}<br>'
+        f'Short transients: {html.escape(str(recommended_dirs["short_noise"]))}<br>'
+        f'Low-frequency rumble: {html.escape(str(recommended_dirs["low_frequency"]))}'
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    return recommended_dirs
+
+
+def import_recommended_open_audio(
+    config: ForgeConfig,
+    *,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> list[Path]:
+    """Import the recommended open-source background-data bundle into the project."""
+
+    out_dir = _recommended_open_data_dir(config)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if progress_callback is not None:
+        progress_callback("Preparing recommended data folders", 0, 3)
+
+    from forge.negatives import ensure_negatives
+
+    if progress_callback is not None:
+        progress_callback("Downloading open-source audio", 1, 3)
+    files = ensure_negatives(
+        out_dir=out_dir,
+        target=RECOMMENDED_OPEN_DATA_TARGET,
+        use_common_voice=True,
+        use_esc50=True,
+    )
+    if progress_callback is not None:
+        progress_callback("Recommended audio ready", 3, 3)
+    return list(files)
+
+
+def _recommended_open_data_state(config: ForgeConfig, recommended_dir: Path) -> tuple[bool, int]:
+    is_active = Path(str(config.augmentation_noise_dir)).expanduser() == recommended_dir
+    imported_count = _count_supported_audio_files(recommended_dir) if recommended_dir.is_dir() else 0
+    return is_active, imported_count
+
+
+def _render_recommended_open_data_status(st, config: ForgeConfig, recommended_dir: Path) -> None:
+    is_active, imported_count = _recommended_open_data_state(config, recommended_dir)
+    if is_active and imported_count:
+        plural = "file" if imported_count == 1 else "files"
+        st.markdown(
+            '<div class="forge-data-source-card">'
+            f'<div class="forge-data-source-title">Active · {imported_count} audio {plural}</div>'
+            f'<div class="forge-data-source-path">{html.escape(str(recommended_dir))}</div>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    elif is_active:
+        st.warning(
+            f"Recommended background data is selected, but no audio files were found yet in `{recommended_dir}`."
+        )
+    else:
+        st.caption(f"Recommended background data will be stored in `{recommended_dir}`.")
+
+
+def _render_recommended_open_data_confirmation(st, config: ForgeConfig, recommended_dir: Path) -> None:
+    st.warning("Confirm the license notice before downloading or generating recommended background data.")
+    st.markdown(RECOMMENDED_OPEN_DATA_LICENSE_NOTICE)
+    st.caption(f"Import target: `{recommended_dir}`")
+    accepted = st.checkbox(
+        "I understand the dataset licenses and will verify they fit my use case before redistribution or deployment."
+    )
+
+    cancel_col, confirm_col = st.columns(2)
+    with cancel_col:
+        if st.button("Cancel", type="secondary", use_container_width=True):
+            st.session_state[OPEN_DATA_CONFIRM_KEY] = False
+            st.rerun()
+    with confirm_col:
+        confirmed = st.button(
+            "Confirm and download recommended data",
+            type="primary",
+            disabled=not accepted,
+            use_container_width=True,
+        )
+    if not confirmed:
+        return
+
+    progress_bar = st.progress(0.0, text="Preparing recommended data folders")
+
+    def progress_callback(label: str, step: int, total: int) -> None:
+        denominator = max(total, 1)
+        value = max(0.0, min(1.0, step / denominator))
+        progress_bar.progress(value, text=label)
+
+    updated = replace(config, augmentation_noise_dir=str(recommended_dir))
+    with st.spinner("Downloading recommended open-source background data"):
+        imported = import_recommended_open_audio(updated, progress_callback=progress_callback)
+    save_config(updated)
+    plural = "file" if len(imported) == 1 else "files"
+    st.success(f"Imported {len(imported)} recommended open-source audio {plural} into {recommended_dir}.")
+    st.session_state[OPEN_DATA_CONFIRM_KEY] = False
+    st.rerun()
+
+
+def _render_recommended_open_data_dialog(st, config: ForgeConfig, recommended_dir: Path) -> None:
+    dialog = getattr(st, "dialog", None)
+    if callable(dialog):
+        dialog = cast(Callable[[str], Callable[[Callable[[], None]], Callable[[], None]]], dialog)
+
+        @dialog("Import recommended open-source data")
+        def confirmation_dialog() -> None:
+            _render_recommended_open_data_confirmation(st, config, recommended_dir)
+
+        confirmation_dialog()
+        return
+
+    _render_recommended_open_data_confirmation(st, config, recommended_dir)
+
+
+def _render_recommended_open_data_import(st, config: ForgeConfig) -> str:
+    recommended_dir = _recommended_open_data_dir(config)
+    is_active, imported_count = _recommended_open_data_state(config, recommended_dir)
+    _render_recommended_open_data_status(st, config, recommended_dir)
+    if is_active and imported_count:
+        action_label = "Re-import or repair recommended data"
+    else:
+        action_label = "Import recommended open-source data"
+        st.caption(
+            "Recommended import includes Mozilla Common Voice, ESC-50 (CC BY-NC 3.0), "
+            "and local synthetic clips; verify the dataset licenses in the confirmation popup."
+        )
+    if st.button(action_label, type="secondary", use_container_width=True):
+        st.session_state[OPEN_DATA_CONFIRM_KEY] = True
+
+    if st.session_state.get(OPEN_DATA_CONFIRM_KEY):
+        _render_recommended_open_data_dialog(st, config, recommended_dir)
+    return str(recommended_dir)
 
 
 def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
@@ -432,6 +1086,8 @@ def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
 
     st.subheader("3. Augmentation plan")
     st.caption("Decide whether to add generated positives and hard negatives before capture/training.")
+
+    _render_subsection(st, "Generated positives", "Optional synthetic wake-phrase clips to widen voice coverage.")
     use_tts = st.toggle("Use TTS augmentation", value=config.use_tts_augmentation)
     tts_variants = st.number_input(
         "Synthetic positive target",
@@ -452,7 +1108,11 @@ def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
         help=TTS_ENGINE_HELP,
     )
 
-    st.caption("Training-time acoustic augmentation controls model robustness after samples are reviewed.")
+    _render_subsection(
+        st,
+        "Training-time robustness",
+        "Augment reviewed samples during training so the detector handles real rooms and noise.",
+    )
     use_training_aug = st.toggle(
         "Use training-time acoustic augmentation",
         value=config.training_augmentation_enabled,
@@ -480,30 +1140,76 @@ def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
         value=config.use_spectrogram_augmentation,
         disabled=not use_training_aug,
     )
-    noise_dir = st.text_input(
-        "Background noise folder",
-        value=config.augmentation_noise_dir,
+
+    _render_subsection(st, "Background noise source", "Choose the noise pool used by background mixing.")
+    open_data_mode = st.selectbox(
+        "Background noise data source",
+        options=BACKGROUND_NOISE_DATA_SOURCE_OPTIONS,
+        index=BACKGROUND_NOISE_DATA_SOURCE_OPTIONS.index(_background_noise_data_mode(config)),
         disabled=not use_training_aug,
-        help="Optional folder of local WAV noise clips to mix into augmented samples.",
+        help="Use recommended open-source data, point at your own local folder, or skip external background noise mixing.",
     )
-    ir_dir = st.text_input(
-        "Room impulse response folder",
-        value=config.augmentation_ir_dir,
+    if not use_training_aug:
+        noise_dir = ""
+    elif open_data_mode == RECOMMENDED_OPEN_DATA_MODE:
+        noise_dir = _render_recommended_open_data_import(st, config)
+    elif open_data_mode == MANUAL_OPEN_DATA_MODE:
+        noise_dir = st.text_input(
+            "Background noise folder",
+            value=config.augmentation_noise_dir,
+            disabled=not use_training_aug,
+            help="Folder of local WAV noise clips to mix into augmented samples.",
+        )
+    else:
+        noise_dir = ""
+        st.caption("No external background-noise folder will be used. Synthetic waveform augmentation can still run.")
+
+    _render_subsection(
+        st,
+        "Advanced acoustic folders",
+        "Optional room, transient, and low-frequency acoustic assets for stronger training-time variation.",
+    )
+    advanced_mode = st.selectbox(
+        "Advanced acoustic folder source",
+        options=ADVANCED_ACOUSTIC_DATA_SOURCE_OPTIONS,
+        index=ADVANCED_ACOUSTIC_DATA_SOURCE_OPTIONS.index(_advanced_acoustic_data_mode(config)),
         disabled=not use_training_aug,
-        help="Optional folder of local WAV room impulse responses.",
+        help="Use project-local recommended folders, point at your own local folders, or skip these optional acoustic assets.",
     )
-    short_noise_dir = st.text_input(
-        "Short noise folder",
-        value=config.augmentation_short_noise_dir,
-        disabled=not use_training_aug,
-        help="Optional folder of local WAV transient noises.",
-    )
-    truck_noise_dir = st.text_input(
-        "Low-frequency noise folder",
-        value=config.augmentation_truck_noise_dir,
-        disabled=not use_training_aug,
-        help="Optional folder of local WAV rumble or machinery noise.",
-    )
+    if not use_training_aug:
+        ir_dir = ""
+        short_noise_dir = ""
+        truck_noise_dir = ""
+    elif advanced_mode == RECOMMENDED_OPEN_DATA_MODE:
+        advanced_dirs = _render_recommended_advanced_acoustic_status(st, config)
+        ir_dir = str(advanced_dirs["ir"])
+        short_noise_dir = str(advanced_dirs["short_noise"])
+        truck_noise_dir = str(advanced_dirs["low_frequency"])
+    elif advanced_mode == MANUAL_ADVANCED_ACOUSTIC_MODE:
+        st.caption("Optional local folders for impulse responses, short transients, and low-frequency rumble.")
+        ir_dir = st.text_input(
+            "Room impulse response folder",
+            value=config.augmentation_ir_dir,
+            disabled=not use_training_aug,
+            help="Optional folder of local WAV room impulse responses.",
+        )
+        short_noise_dir = st.text_input(
+            "Short noise folder",
+            value=config.augmentation_short_noise_dir,
+            disabled=not use_training_aug,
+            help="Optional folder of local WAV transient noises.",
+        )
+        truck_noise_dir = st.text_input(
+            "Low-frequency noise folder",
+            value=config.augmentation_truck_noise_dir,
+            disabled=not use_training_aug,
+            help="Optional folder of local WAV rumble or machinery noise.",
+        )
+    else:
+        ir_dir = ""
+        short_noise_dir = ""
+        truck_noise_dir = ""
+        st.caption("Advanced acoustic folders will be skipped; base waveform augmentation can still run.")
 
     updated = replace(
         config,
@@ -519,8 +1225,15 @@ def _render_augmentation_step(st, config: ForgeConfig) -> ForgeConfig:
         augmentation_short_noise_dir=str(short_noise_dir).strip() if use_training_aug else "",
         augmentation_truck_noise_dir=str(truck_noise_dir).strip() if use_training_aug else "",
     )
-    if st.button("Confirm augmentation plan", type="secondary", use_container_width=True):
-        _confirm_step(st, updated, "capture", "Augmentation plan confirmed.")
+    if _render_wizard_action_row(st, "augmentation", "Confirm augmentation plan"):
+        _confirm_step(
+            st,
+            updated,
+            "capture",
+            "Augmentation plan confirmed.",
+            previous_config=config,
+            edited_step="augmentation",
+        )
     return updated
 
 
@@ -802,6 +1515,54 @@ def _render_positive_sample_import(st, config: ForgeConfig, current_count: int, 
         st.rerun()
 
 
+def _render_negative_sample_import(st, config: ForgeConfig, current_count: int, target_count: int) -> None:
+    st.markdown(f"**{current_count} / {target_count} negative samples imported**")
+    missing = max(0, target_count - current_count)
+    source_dir = Path(config.negative_source_dir).expanduser() if config.negative_source_dir else None
+    source_available = source_dir is not None and source_dir.is_dir()
+    if source_dir is None:
+        st.caption("Choose an existing negative sample folder in the recording plan.")
+    elif not source_available:
+        st.caption(f"Existing negative sample folder is not available: {source_dir}")
+    else:
+        st.caption(f"Import non-wakeword clips from `{source_dir}`. Source files are copied; originals stay untouched.")
+
+    if st.button(
+        f"Import {missing} existing negative samples",
+        disabled=missing == 0 or not source_available,
+        type="secondary",
+        use_container_width=True,
+    ):
+        try:
+            assert source_dir is not None
+            with st.spinner(f"Importing {missing} existing negative samples"):
+                result = import_negative_audio(
+                    config,
+                    source_dir=source_dir,
+                    kind="background",
+                    limit=missing,
+                    limit_per_source=None,
+                    max_chunks_per_file=1,
+                )
+        except Exception as exc:  # pragma: no cover - UI error display path.
+            st.error(str(exc))
+            st.exception(exc)
+            return
+
+        if result.imported_count:
+            save_config(config)
+            st.success(
+                f"Imported {result.imported_count} existing negative samples "
+                f"from {result.available_count} available audio files."
+            )
+        else:
+            st.warning("No existing negative samples were imported from that folder.")
+        skipped_paths = getattr(result, "skipped_paths", ())
+        if skipped_paths:
+            st.caption(f"Skipped {len(skipped_paths)} unreadable audio file(s).")
+        st.rerun()
+
+
 def _split_count(total: int, buckets: int) -> list[int]:
     if total <= 0 or buckets <= 0:
         return []
@@ -838,17 +1599,25 @@ def _render_capture_step(st, config: ForgeConfig, status) -> None:
         return
 
     if status.negatives < config.record_negatives:
-        _render_one_take_recorder(
-            st,
-            kind="counter-example",
-            phrase="a near-miss, partial phrase, repeated fragment, or anything except the full trigger",
-            current_count=status.negatives,
-            target_count=config.record_negatives,
-            out_dir=config.negatives_path,
-            duration=config.record_duration,
-            prefix="neg",
-            guidance=_negative_example_guidance(config),
-        )
+        if config.negative_source_dir:
+            _render_negative_sample_import(
+                st,
+                config,
+                current_count=status.negatives,
+                target_count=config.record_negatives,
+            )
+        else:
+            _render_one_take_recorder(
+                st,
+                kind="counter-example",
+                phrase="a near-miss, partial phrase, repeated fragment, or anything except the full trigger",
+                current_count=status.negatives,
+                target_count=config.record_negatives,
+                out_dir=config.negatives_path,
+                duration=config.record_duration,
+                prefix="neg",
+                guidance=_negative_example_guidance(config),
+            )
         return
 
     if config.use_tts_augmentation and config.tts_engine != "none":
@@ -952,7 +1721,7 @@ def _render_capture_step(st, config: ForgeConfig, status) -> None:
 def _render_train_step(st, config: ForgeConfig, status) -> None:
     st.subheader("6. Train and test")
     st.caption("Train only after review gates are current. Quality checking stays explicit.")
-    if st.button("Train detector", type="primary", disabled=not status.ready_to_train, use_container_width=True):
+    if _render_wizard_action_row(st, "train", "Train detector", disabled=not status.ready_to_train):
         from forge.trainer import run_training
 
         _run_blocking_action("Training detector", lambda: run_training(config))
@@ -985,17 +1754,23 @@ def _current_wizard_step(st, status) -> str:
     step = getattr(st, "session_state", {}).get(DASHBOARD_STEP_KEY)
     if step not in WIZARD_STEPS:
         step = _default_wizard_step(status)
-    if not status.wake_phrase and step not in {"intro", "workspace"}:
+    if not status.wake_phrase and step not in {"intro", "workspace", "phrase"}:
         return "intro"
     return step
 
 
 def _render_current_wizard_step(st, config: ForgeConfig, status, current_step: str | None = None) -> None:
     step = current_step or _current_wizard_step(st, status)
+    if step != "intro":
+        if step not in {"workspace", "phrase", "recording", "augmentation", "review", "train"}:
+            _render_step_back_navigation(st, step)
+        _render_step_guidance(st, step)
     if step == "intro":
         _render_intro_step(st, config)
     elif step == "workspace":
         _render_workspace_step(st, config)
+    elif step == "phrase":
+        _render_phrase_step(st, config)
     elif step == "recording":
         _render_recording_step(st, config)
     elif step == "augmentation":
@@ -1006,7 +1781,12 @@ def _render_current_wizard_step(st, config: ForgeConfig, status, current_step: s
         st.subheader("5. Review samples")
         st.caption("Approve the current sample set before training. If files change, approvals go stale.")
         _render_review_checkpoints(st, config, status)
-        if st.button("Continue to training", disabled=not status.ready_to_train, type="secondary", use_container_width=True):
+        if _render_wizard_action_row(
+            st,
+            "review",
+            "Continue to training",
+            disabled=not status.ready_to_train,
+        ):
             _set_wizard_step(st, "train")
             st.rerun()
     elif step == "train":
@@ -1064,20 +1844,16 @@ def _workflow_step_state(step: str, current_step: str, issue: bool = False) -> s
     return "pending"
 
 
-def _render_progress_sidebar(st, status, current_step: str | None = None) -> None:
+def _render_progress_sidebar(st, status, current_step: str | None = None, config: ForgeConfig | None = None) -> None:
     """Render the sidebar as a compact workflow progress rail."""
 
     current_step = current_step or _default_wizard_step(status)
     sidebar = st.sidebar
-    sidebar.header("Progress")
-    sidebar.progress(_workflow_progress_fraction(status), text=status.workflow_stage)
-    sidebar.caption(f"Next step: {status.next_action}")
-    sidebar.divider()
-
     sidebar.subheader("Run checklist")
     step_notes = {
         "intro": "overview and start",
-        "workspace": f"{len(status.wake_phrases)} phrase(s)" if status.wake_phrases else "choose phrases",
+        "workspace": "confirm project folder",
+        "phrase": f"{len(status.wake_phrases)} phrase(s)" if status.wake_phrases else "choose wake phrase",
         "recording": f"targets: {MIN_POSITIVES}+ positives / {MIN_NEGATIVES}+ negatives",
         "augmentation": f"{status.synthetic_positives} synthetic clips",
         "capture": f"{status.total_positives} positives / {status.total_negatives} negatives",
@@ -1100,6 +1876,13 @@ def _render_progress_sidebar(st, status, current_step: str | None = None) -> Non
     sidebar.metric("Positives", status.total_positives)
     sidebar.metric("Negatives", status.total_negatives)
     sidebar.caption(f"Project: {status.project_dir}")
+
+    if config is not None:
+        sidebar.divider()
+        sidebar.subheader("Recovery")
+        _render_dashboard_progress_reset(st, sidebar)
+        with sidebar.expander("Wipe local project data", expanded=False):
+            _render_start_over_controls(st, config, include_divider=False)
 
 
 def _render_cli_fallbacks(st, config: ForgeConfig) -> None:
@@ -1135,20 +1918,40 @@ def _render_cli_fallbacks(st, config: ForgeConfig) -> None:
 def _clear_reset_session_state(st) -> None:
     st.session_state.pop(DASHBOARD_STEP_KEY, None)
     st.session_state.pop(LAST_CAPTURED_TAKE_KEY, None)
+    st.session_state.pop(PHRASE_ALIAS_COUNT_KEY, None)
 
 
-def _render_start_over_controls(st, config: ForgeConfig) -> None:
-    st.divider()
-    st.subheader("Start over")
+def _render_dashboard_progress_reset(st, container=None) -> None:
+    """Render a non-destructive dashboard-only reset action."""
+
+    ui = container or st
+    ui.caption("Stuck or want to revisit choices? Reset only the dashboard step state.")
+    if ui.button(
+        "Reset dashboard progress",
+        type="secondary",
+        use_container_width=True,
+        help="Clears wizard progress and the last-take replay panel. It does not delete project files.",
+    ):
+        _clear_reset_session_state(st)
+        message = "Dashboard progress reset. Project files were not deleted."
+        st.session_state[RESET_MESSAGE_KEY] = message
+        ui.success(message)
+        st.rerun()
+
+
+def _render_start_over_controls(st, config: ForgeConfig, *, include_divider: bool = True) -> None:
+    if include_divider:
+        st.divider()
+    st.subheader("Wipe project data")
     st.caption(
-        "Deletes this project's forge_config.json, samples, generated audio, model output, "
-        f"and cache. Unrelated files in `{config.project_path}` are preserved."
+        "Destructive reset: deletes this project's forge_config.json, samples, generated audio, "
+        f"model output, and cache. Unrelated files in `{config.project_path}` are preserved."
     )
     confirmed = st.checkbox(
         "I understand this deletes local samples, generated audio, model output, and config"
     )
     if st.button(
-        "Wipe configs and start from scratch",
+        "Wipe local project data",
         disabled=not confirmed,
         type="secondary",
         use_container_width=True,
@@ -1276,10 +2079,8 @@ def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
     ensure_project_dirs(config)
     status = inspect_project(config)
     current_step = _current_wizard_step(st, status)
-    _render_progress_sidebar(st, status, current_step)
+    _render_progress_sidebar(st, status, current_step, config)
 
-    if current_step != "intro":
-        st.info(f"Next: {status.next_action}")
     _render_current_wizard_step(st, config, status, current_step)
 
     with st.expander("Advanced status and CLI fallback", expanded=False):
@@ -1308,7 +2109,6 @@ def run_app(project_dir: Path | str = DEFAULT_PROJECT_DIR) -> None:
             }
         )
         _render_cli_fallbacks(st, config)
-        _render_start_over_controls(st, config)
 
 
 if __name__ == "__main__":
