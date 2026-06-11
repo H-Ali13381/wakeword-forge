@@ -23,6 +23,8 @@ import torchaudio
 from .audio import trim_silence_edges
 from .config import MAX_SAMPLES, SAMPLE_RATE
 
+SPEED_PERTURB_RANGE: tuple[float, float] = (0.85, 1.35)
+
 if TYPE_CHECKING:  # pragma: no cover - typing only.
     from .config import ForgeConfig
 
@@ -68,6 +70,18 @@ def _normalize_peak(wav: torch.Tensor, target: float = 0.95) -> torch.Tensor:
     return wav.clamp(-1.0, 1.0)
 
 
+def _rms(wav: torch.Tensor) -> torch.Tensor:
+    return wav.pow(2).mean().sqrt().clamp_min(1e-9)
+
+
+def _quantize(wav: torch.Tensor, bits: int | None) -> torch.Tensor:
+    if bits is None:
+        return wav
+    bits = max(2, int(bits))
+    levels = float((2 ** (bits - 1)) - 1)
+    return torch.round(wav.clamp(-1.0, 1.0) * levels) / levels
+
+
 # ── Individual waveform augments ──────────────────────────────────────────────
 
 
@@ -82,7 +96,7 @@ def add_gaussian_noise(wav: torch.Tensor, snr_db: float | None = None) -> torch.
 
 def speed_perturb(wav: torch.Tensor, sr: int = SAMPLE_RATE, factor: float | None = None) -> torch.Tensor:
     if factor is None:
-        factor = random.uniform(0.85, 1.15)
+        factor = random.uniform(*SPEED_PERTURB_RANGE)
     new_sr = max(1, int(sr * factor))
     return torchaudio.functional.resample(wav, new_sr, sr)
 
@@ -132,6 +146,96 @@ def apply_ir(wav: torch.Tensor, ir: torch.Tensor) -> torch.Tensor:
     padded = F.pad(wav.reshape(1, 1, -1), (kernel.shape[-1] - 1, 0))
     out = F.conv1d(padded, kernel).reshape(1, -1)
     return out[..., :n]
+
+
+def low_gain_mic(
+    wav: torch.Tensor,
+    *,
+    attenuation_db: float | None = None,
+    noise_floor_rms: float | None = None,
+    quantization_bits: int | None = 12,
+) -> torch.Tensor:
+    """Simulate quiet/far direct speech by lowering SNR, not just amplitude.
+
+    The direct speech path is attenuated before a fixed microphone/self-noise
+    floor is added. Later peak normalization may raise the whole result, but it
+    cannot restore the original speech-to-noise ratio.
+    """
+
+    if attenuation_db is None:
+        attenuation_db = random.uniform(-30.0, -6.0)
+    if noise_floor_rms is None:
+        noise_floor_rms = random.uniform(0.002, 0.02)
+    direct = _gain_db(wav.float(), attenuation_db)
+    noise = torch.randn_like(direct) * float(noise_floor_rms)
+    return _quantize(direct + noise, quantization_bits).clamp(-1.0, 1.0)
+
+
+def onset_jitter(
+    wav: torch.Tensor,
+    *,
+    max_samples: int = MAX_SAMPLES,
+    offset: int | None = None,
+) -> torch.Tensor:
+    """Place a clip inside the full model window without wraparound.
+
+    This is intentionally different from ``time_shift``. Wakeword samples are
+    kept short enough to leave slack in the 3-second model window; onset jitter
+    uses that slack to expose early, centered, and late placements.
+    """
+
+    source = wav[..., :max_samples]
+    n = source.shape[-1]
+    max_offset = max(0, max_samples - n)
+    if offset is None:
+        offset = random.randint(0, max_offset)
+    offset = min(max(0, int(offset)), max_offset)
+    out = torch.zeros(*source.shape[:-1], max_samples, device=source.device, dtype=source.dtype)
+    out[..., offset : offset + n] = source
+    return out
+
+
+def far_field(
+    wav: torch.Tensor,
+    sr: int = SAMPLE_RATE,
+    *,
+    ir: torch.Tensor | None = None,
+    background: torch.Tensor | None = None,
+    distance_db: float | None = None,
+    wet_mix: float | None = None,
+    snr_db: float | None = None,
+) -> torch.Tensor:
+    """Compose distance attenuation, room coloration, and background SNR stress."""
+
+    if distance_db is None:
+        distance_db = random.uniform(-18.0, -6.0)
+    if wet_mix is None:
+        wet_mix = random.uniform(0.25, 0.65)
+    if snr_db is None:
+        snr_db = random.uniform(3.0, 12.0)
+
+    direct = _gain_db(wav.float(), distance_db)
+    colored = direct
+    try:
+        colored = torchaudio.functional.lowpass_biquad(
+            colored,
+            sample_rate=sr,
+            cutoff_freq=random.uniform(2500.0, min(6000.0, sr / 2 - 100.0)),
+        )
+    except Exception:
+        colored = direct
+
+    if ir is not None:
+        wet = apply_ir(direct, ir)
+        wet = wet * (_rms(direct) / _rms(wet))
+        mix = min(max(float(wet_mix), 0.0), 1.0)
+        colored = colored * (1.0 - mix) + wet * mix
+
+    if background is not None:
+        colored = mix_noise(colored, background, snr_db=snr_db)
+    else:
+        colored = colored + torch.randn_like(colored) * random.uniform(0.001, 0.006)
+    return colored.clamp(-1.0, 1.0)
 
 
 def _gain_db(wav: torch.Tensor, gain_db: float) -> torch.Tensor:
@@ -223,15 +327,20 @@ class CascadingAugmentor:
     natural acoustic variation.
     """
 
+    POLICY_VERSION = "robust-v1"
+    SPEED_RANGE = SPEED_PERTURB_RANGE
     PRESETS: dict[str, dict[int, float]] = {
         "standard": {1: 1.00, 2: 0.70, 3: 0.50, 4: 0.30, 5: 0.10},
+        "robust-v1": {1: 1.00, 2: 0.70, 3: 0.50, 4: 0.30, 5: 0.10},
         "light": {1: 0.60, 2: 0.20},
     }
-    _PRESET_DEFAULT_MAX_CHAIN: dict[str, int] = {"standard": 5, "light": 2}
+    _PRESET_DEFAULT_MAX_CHAIN: dict[str, int] = {"standard": 5, "robust-v1": 5, "light": 2}
 
     BASE_TRANSFORMS: tuple[_TransformSpec, ...] = (
         _TransformSpec("gaussian", 3, "noise"),
         _TransformSpec("gaussian_snr", 3, "noise"),
+        _TransformSpec("low_gain_mic", 3, "noise"),
+        _TransformSpec("far_field", 3, "environment"),
         _TransformSpec("band_pass", 3, "filter"),
         _TransformSpec("band_stop", 3, "filter"),
         _TransformSpec("high_pass", 3, "filter"),
@@ -239,7 +348,8 @@ class CascadingAugmentor:
         _TransformSpec("gain", 2, "gain"),
         _TransformSpec("gain_transition", 2, "gain"),
         _TransformSpec("time_mask", 2, None),
-        _TransformSpec("speed", 1, None),
+        _TransformSpec("onset_jitter", 2, "position"),
+        _TransformSpec("speed", 3, None),
         _TransformSpec("pitch", 1, None),
         _TransformSpec("polarity", 1, None),
         _TransformSpec("clipping", 1, None),
@@ -349,6 +459,26 @@ class CascadingAugmentor:
             return add_gaussian_noise(wav, snr_db=self.rng.uniform(10, 40))
         if name == "gaussian_snr":
             return add_gaussian_noise(wav, snr_db=self.rng.uniform(5, 40))
+        if name == "low_gain_mic":
+            return low_gain_mic(
+                wav,
+                attenuation_db=self.rng.uniform(-30, -6),
+                noise_floor_rms=self.rng.uniform(0.002, 0.02),
+                quantization_bits=self.rng.choice((10, 12, None)),
+            )
+        if name == "far_field":
+            ir = self._choose_audio(self._ir_files)
+            background_files = [*self._noise_files, *self._short_noise_files, *self._truck_noise_files]
+            background = self._choose_audio(background_files)
+            return far_field(
+                wav,
+                sr,
+                ir=ir,
+                background=background,
+                distance_db=self.rng.uniform(-18, -6),
+                wet_mix=self.rng.uniform(0.25, 0.65),
+                snr_db=self.rng.uniform(3, 12),
+            )
         if name in {"band_pass", "band_stop", "high_pass", "low_pass"}:
             return _safe_filter(wav, sr, name)
         if name == "gain":
@@ -357,8 +487,13 @@ class CascadingAugmentor:
             return _gain_transition(wav, self.rng.uniform(-6, 6), self.rng.uniform(-6, 6))
         if name == "time_mask":
             return _time_mask_waveform(wav)
+        if name == "onset_jitter":
+            n = min(wav.shape[-1], MAX_SAMPLES)
+            max_offset = max(0, MAX_SAMPLES - n)
+            offset = self.rng.randint(0, max_offset) if max_offset else 0
+            return onset_jitter(wav, max_samples=MAX_SAMPLES, offset=offset)
         if name == "speed":
-            return speed_perturb(wav, sr, factor=self.rng.uniform(0.8, 1.25))
+            return speed_perturb(wav, sr, factor=self.rng.uniform(*self.SPEED_RANGE))
         if name == "pitch":
             try:
                 return pitch_shift(wav, sr, n_steps=self.rng.uniform(-4, 4))
@@ -545,6 +680,58 @@ def _optional_dir(raw: str) -> Path | None:
         return None
     path = Path(raw).expanduser()
     return path if path.exists() else path
+
+
+def _wav_count(raw: str) -> int:
+    if not raw:
+        return 0
+    path = Path(raw).expanduser()
+    if not path.exists():
+        return 0
+    return len(list(path.rglob("*.wav")))
+
+
+def augmentation_metadata(config: "ForgeConfig") -> dict[str, object]:
+    """Return persisted training-augmentation provenance for exported models."""
+
+    return {
+        "enabled": bool(config.training_augmentation_enabled),
+        "policy_version": CascadingAugmentor.POLICY_VERSION,
+        "waveform": {
+            "enabled": bool(config.training_augmentation_enabled),
+            "preset": config.training_augmentation_preset,
+            "regular_negative_preset": config.regular_negative_augmentation_preset,
+            "max_chain": config.training_augmentation_max_chain,
+            "probability": config.training_augmentation_probability,
+            "transforms": [spec.name for spec in CascadingAugmentor.BASE_TRANSFORMS],
+            "speed_range": list(CascadingAugmentor.SPEED_RANGE),
+            "low_gain_mic": {
+                "attenuation_db": [-30.0, -6.0],
+                "noise_floor_rms": [0.002, 0.02],
+                "quantization_bits": [10, 12, None],
+            },
+            "far_field": {
+                "distance_db": [-18.0, -6.0],
+                "background_snr_db": [3.0, 12.0],
+                "wet_mix": [0.25, 0.65],
+            },
+        },
+        "spectrogram": {
+            "enabled": bool(config.use_spectrogram_augmentation and config.training_augmentation_enabled),
+            "freq_mask_param": 8,
+            "num_freq_masks": 2,
+            "time_mask_param": 40,
+            "num_time_masks": 2,
+            "time_warp_w": 10,
+            "noise_std": 0.01,
+        },
+        "asset_counts": {
+            "background_noise": _wav_count(config.augmentation_noise_dir),
+            "room_impulse_response": _wav_count(config.augmentation_ir_dir),
+            "short_noise": _wav_count(config.augmentation_short_noise_dir),
+            "truck_noise": _wav_count(config.augmentation_truck_noise_dir),
+        },
+    }
 
 
 def build_training_augmentors(config: "ForgeConfig") -> tuple[CascadingAugmentor | None, SpectrogramAugmentor | None]:

@@ -846,7 +846,7 @@ def train(
     augmentation_preset: Optional[str] = typer.Option(
         None,
         "--augmentation-preset",
-        help="Waveform augmentation preset for positives and hard negatives: standard or light.",
+        help="Waveform augmentation preset for positives and hard negatives: robust-v1, standard, or light.",
     ),
     regular_negative_preset: Optional[str] = typer.Option(
         None,

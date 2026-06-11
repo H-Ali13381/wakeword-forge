@@ -101,8 +101,8 @@ class ForgeConfig:
 
     # Training-time acoustic augmentation
     training_augmentation_enabled: bool = True
-    training_augmentation_preset: str = "standard"          # "standard" | "light"
-    regular_negative_augmentation_preset: str = "light"     # "standard" | "light" | "none"
+    training_augmentation_preset: str = "standard"          # "robust-v1" | "standard" | "light"
+    regular_negative_augmentation_preset: str = "light"     # "robust-v1" | "standard" | "light" | "none"
     training_augmentation_max_chain: int = 5
     training_augmentation_probability: float = 1.0
     use_spectrogram_augmentation: bool = False

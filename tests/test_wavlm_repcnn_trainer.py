@@ -5,6 +5,7 @@ tests/test_wavlm_repcnn_trainer.py — WavLM teacher -> RepCNN student backend b
 import sys
 import types
 from pathlib import Path
+import json
 
 import numpy as np
 import soundfile as sf
@@ -59,6 +60,11 @@ def test_export_repcnn_onnx_writes_distillation_metadata(tmp_path):
     from forge.models.wavlm_repcnn import RepCNN
 
     path = tmp_path / "wakeword.onnx"
+    augmentation = {
+        "enabled": True,
+        "policy_version": "robust-v1",
+        "asset_counts": {"background_noise": 2},
+    }
 
     exported = export_repcnn_onnx(
         RepCNN(channels=8, kernel_sizes=(3,), n_branches=1),
@@ -67,12 +73,13 @@ def test_export_repcnn_onnx_writes_distillation_metadata(tmp_path):
         threshold=0.42,
         eer=0.12,
         teacher_model="microsoft/wavlm-base",
+        augmentation_metadata=augmentation,
     )
 
     assert exported == path
     sidecar = path.with_suffix(".json")
     assert sidecar.exists()
-    metadata = __import__("json").loads(sidecar.read_text())
+    metadata = json.loads(sidecar.read_text())
     assert metadata["backend"] == "wavlm-repcnn"
     assert metadata["model_type"] == "repcnn"
     assert metadata["reparameterized"] is True
@@ -80,6 +87,7 @@ def test_export_repcnn_onnx_writes_distillation_metadata(tmp_path):
     assert metadata["teacher_model_type"] == "wavlm"
     assert metadata["teacher_model"] == "microsoft/wavlm-base"
     assert metadata["threshold"] == 0.42
+    assert metadata["augmentation"] == augmentation
 
     # ONNX graph must expose the stable runtime contract used by mic-test/quality-check.
     import onnx
@@ -90,6 +98,8 @@ def test_export_repcnn_onnx_writes_distillation_metadata(tmp_path):
     initializer_names = [init.name for init in model.graph.initializer]
     assert any("fused_conv" in name for name in initializer_names)
     assert not any("branches" in name for name in initializer_names)
+    onnx_metadata = {prop.key: prop.value for prop in model.metadata_props}
+    assert json.loads(onnx_metadata["augmentation"]) == augmentation
 
 
 def test_repconv_block_reparameterize_preserves_eval_output():

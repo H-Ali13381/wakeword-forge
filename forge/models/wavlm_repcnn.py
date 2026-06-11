@@ -28,7 +28,13 @@ from rich.console import Console
 from sklearn.metrics import roc_curve
 from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 
-from ..augmentation import Augmentor, SpectrogramAugmentor, _load_wav, _pad_or_trim
+from ..augmentation import (
+    Augmentor,
+    SpectrogramAugmentor,
+    _load_wav,
+    _pad_or_trim,
+    augmentation_metadata as build_augmentation_metadata,
+)
 from ..config import HOP_LENGTH, MAX_FRAMES, MAX_SAMPLES, N_FFT, N_MELS, SAMPLE_RATE, TARGET_FAR, ForgeConfig
 
 console = Console()
@@ -753,7 +759,16 @@ class WavLMRepCNNTrainer:
             threshold=self.threshold,
             eer=self.eer,
             teacher_model=self.teacher_model_name,
+            augmentation_metadata=build_augmentation_metadata(self.config),
         )
+
+
+def _metadata_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple, bool, int, float)):
+        return json.dumps(value, sort_keys=True)
+    return str(value)
 
 
 def _write_onnx_metadata(path: Path, metadata: dict[str, object]) -> None:
@@ -764,7 +779,7 @@ def _write_onnx_metadata(path: Path, metadata: dict[str, object]) -> None:
     for key, value in metadata.items():
         prop = proto.metadata_props.add()
         prop.key = str(key)
-        prop.value = "" if value is None else str(value)
+        prop.value = _metadata_value(value)
     onnx.save(proto, path)
 
 
@@ -775,6 +790,7 @@ def export_repcnn_onnx(
     threshold: float = 0.5,
     eer: float | None = None,
     teacher_model: str = DEFAULT_WAVLM_TEACHER,
+    augmentation_metadata: dict[str, object] | None = None,
 ) -> Path:
     """Export a distilled RepCNN detector with stable ``waveform``/``score`` IO names."""
     output_path = Path(output_path)
@@ -820,6 +836,8 @@ def export_repcnn_onnx(
         "teacher_model": teacher_model,
         "model_file": output_path.name,
     }
+    if augmentation_metadata is not None:
+        metadata["augmentation"] = augmentation_metadata
     _write_onnx_metadata(output_path, metadata)
     output_path.with_suffix(".json").write_text(json.dumps(metadata, indent=2))
     return output_path

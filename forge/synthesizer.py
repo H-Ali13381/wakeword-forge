@@ -30,6 +30,9 @@ from .config import SAMPLE_RATE
 
 console = Console()
 
+POSITIVE_TTS_SPEEDS: tuple[float, ...] = (0.85, 0.9, 0.95, 1.0, 1.0, 1.05, 1.1, 1.15, 1.2, 1.3)
+HARD_NEGATIVE_TTS_SPEEDS: tuple[float, ...] = (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.2, 1.3)
+
 
 def _next_numbered_index(out_dir: Path, prefix: str) -> int:
     """Return the next free numeric suffix for files like ``prefix_0001.wav``."""
@@ -526,7 +529,7 @@ def synthesize_positives(
     saved: list[Path] = []
     start_index = _next_numbered_index(out_dir, "synth")
 
-    speeds = [0.85, 0.9, 0.95, 1.0, 1.0, 1.05, 1.1, 1.15]
+    speeds = POSITIVE_TTS_SPEEDS
 
     for i in track(range(n), description="Synthesizing..."):
         text = random.choice(variants)
@@ -650,7 +653,7 @@ def synthesize_confusable_negatives(
 
     random.seed(seed)
     out_dir.mkdir(parents=True, exist_ok=True)
-    speeds = [0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
+    speeds = HARD_NEGATIVE_TTS_SPEEDS
     saved: list[Path] = []
     start_index = _next_numbered_index(out_dir, "confusable")
 
@@ -718,7 +721,7 @@ def synthesize_partial_negatives(
         console.print(f"[yellow]TTS not available ({e}), skipping partial synthesis.[/yellow]")
         return []
 
-    speeds = [0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
+    speeds = HARD_NEGATIVE_TTS_SPEEDS
     saved: list[Path] = []
     start_index = _next_numbered_index(out_dir, "partial")
 

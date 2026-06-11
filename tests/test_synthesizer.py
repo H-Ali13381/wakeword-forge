@@ -21,6 +21,15 @@ class FakeBackend:
         return np.zeros(160, dtype=np.float32), SAMPLE_RATE
 
 
+def test_synthesis_speed_profiles_cover_fast_speech_without_extreme_slowdown():
+    assert max(synthesizer.POSITIVE_TTS_SPEEDS) >= 1.30
+    assert max(synthesizer.HARD_NEGATIVE_TTS_SPEEDS) >= 1.30
+    assert 1.20 in synthesizer.POSITIVE_TTS_SPEEDS
+    assert 1.20 in synthesizer.HARD_NEGATIVE_TTS_SPEEDS
+    assert min(synthesizer.POSITIVE_TTS_SPEEDS) >= 0.85
+    assert min(synthesizer.HARD_NEGATIVE_TTS_SPEEDS) >= 0.85
+
+
 def test_partial_negative_synthesis_appends_after_existing_numbered_files(monkeypatch, tmp_path):
     monkeypatch.setattr(synthesizer, "build_backend", lambda _engine: FakeBackend())
     _touch_wav(tmp_path / "partial_0000.wav")
