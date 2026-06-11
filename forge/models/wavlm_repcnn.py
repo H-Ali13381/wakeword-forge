@@ -771,10 +771,21 @@ def _metadata_value(value: object) -> str:
     return str(value)
 
 
+def _set_value_info_shape(value_info: Any, dims: tuple[int, ...]) -> None:
+    shape = value_info.type.tensor_type.shape
+    del shape.dim[:]
+    for dim in dims:
+        shape.dim.add().dim_value = int(dim)
+
+
 def _write_onnx_metadata(path: Path, metadata: dict[str, object]) -> None:
     import onnx
 
     proto = onnx.load(path)
+    if proto.graph.input:
+        _set_value_info_shape(proto.graph.input[0], (1, MAX_SAMPLES))
+    if proto.graph.output:
+        _set_value_info_shape(proto.graph.output[0], (1,))
     del proto.metadata_props[:]
     for key, value in metadata.items():
         prop = proto.metadata_props.add()
@@ -814,7 +825,6 @@ def export_repcnn_onnx(
             str(output_path),
             input_names=["waveform"],
             output_names=["score"],
-            dynamic_axes={"waveform": {0: "batch", 1: "time"}, "score": {0: "batch"}},
             opset_version=17,
             dynamo=False,
         )

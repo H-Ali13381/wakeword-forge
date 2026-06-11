@@ -10,7 +10,7 @@ import json
 import numpy as np
 import soundfile as sf
 
-from forge.config import BACKGROUND_NEGATIVE_TARGET, ForgeConfig, SAMPLE_RATE
+from forge.config import BACKGROUND_NEGATIVE_TARGET, ForgeConfig, MAX_SAMPLES, SAMPLE_RATE
 from forge.models.wavlm_repcnn import (
     RepConvBlock,
     WakewordDataset,
@@ -95,6 +95,10 @@ def test_export_repcnn_onnx_writes_distillation_metadata(tmp_path):
     model = onnx.load(path)
     assert [input.name for input in model.graph.input] == ["waveform"]
     assert [output.name for output in model.graph.output] == ["score"]
+    waveform_shape = [dim.dim_value or dim.dim_param for dim in model.graph.input[0].type.tensor_type.shape.dim]
+    score_shape = [dim.dim_value or dim.dim_param for dim in model.graph.output[0].type.tensor_type.shape.dim]
+    assert waveform_shape == [1, MAX_SAMPLES]
+    assert score_shape == [1]
     initializer_names = [init.name for init in model.graph.initializer]
     assert any("fused_conv" in name for name in initializer_names)
     assert not any("branches" in name for name in initializer_names)
